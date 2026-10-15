@@ -1,93 +1,67 @@
-import { EntityKind, makeRevision } from "./index.js";
-import { recordMutationID } from "./record.js";
+import { EntityKind } from "./entity-kind.js";
+import { WORKBENCH_WORKSPACE_ID } from "./envelope.js";
+import { canonicalJSON } from "./record.js";
+import type { SyncableRecord } from "./record.js";
+import { makeRevision } from "./revision.js";
 
-/** Deterministic UUIDs used across fixtures so hashes are reproducible. */
-export const FIXTURE_ACCOUNT_ID = "acct-0001";
-export const FIXTURE_WORKSPACE_ID = "ws-0001";
-export const FIXTURE_DEVICE_A = "dev-macbook-pro";
-export const FIXTURE_DEVICE_B = "dev-iphone-16";
+/** IDs and wire shape shared with workbench-sync-core's protocol fixtures. */
+export const FIXTURE_ACCOUNT_ID = "CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC";
+export const FIXTURE_WORKSPACE_ID = WORKBENCH_WORKSPACE_ID;
+export const FIXTURE_DEVICE_A = "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA";
+export const FIXTURE_DEVICE_B = "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB";
 
-/** Builds a canonical record for testing. */
+let nextFixtureID = 1;
+
+export function encodePayload(value: unknown): string {
+  const bytes = new TextEncoder().encode(canonicalJSON(value));
+  return btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(""));
+}
+
+/** Builds a deterministic protocol v1 record; payload is base64 on the wire. */
 export function makeRecord(
   kind: EntityKind,
   payload: unknown,
   revisionCounter = 1,
   originDeviceID = FIXTURE_DEVICE_A,
-  schemaVersion = 3,
-): any {
-  const record = {
-    id: `id-${kind}-${Math.random().toString(36).slice(2, 10)}`,
+  schemaVersion = 1,
+): SyncableRecord {
+  const suffix = String(nextFixtureID++).padStart(12, "0");
+  const record: SyncableRecord = {
+    id: `00000000-0000-4000-8000-${suffix}`,
     entityKind: kind,
     schemaVersion,
     revision: makeRevision(revisionCounter, originDeviceID),
-    modifiedAt: "2026-01-01T00:00:00.000Z",
+    modifiedAt: "1970-01-01T00:00:00Z",
     isTombstone: false,
-    payload,
+    payload: encodePayload(payload),
   };
-  return {
-    ...record,
-    mutationID: recordMutationID(record),
-  };
+  return record;
 }
 
 export const sampleProject = makeRecord(EntityKind.Project, {
-  id: "proj-1",
-  title: "Roadmap",
-  notes: "Q1 priorities and milestones.",
-  createdAt: "2026-01-01T00:00:00.000Z",
-  updatedAt: "2026-01-01T00:00:00.000Z",
+  strings: { title: "Roadmap", notes: "Q1 priorities and milestones." },
 });
 
 export const sampleIdea = makeRecord(EntityKind.Idea, {
-  id: "idea-1",
-  content: "Add cloud sync support for the web client.",
-  title: "Add cloud sync support for the web client.",
-  category: "General",
-  createdAt: "2026-01-01T00:00:00.000Z",
-  updatedAt: "2026-01-01T00:00:00.000Z",
+  strings: { title: "Add cloud sync support", content: "Add cloud sync support." },
 });
 
 export const sampleTask = makeRecord(EntityKind.Task, {
-  id: "task-1",
-  title: "Write sync protocol adapter",
-  status: "in-progress",
-  priority: "High",
-  dueDate: "2026-02-01T00:00:00.000Z",
-  summaryOrder: 0,
+  strings: { title: "Write sync protocol adapter", status: "in-progress" },
 });
 
 export const sampleNote = makeRecord(EntityKind.Note, {
-  id: "note-1",
-  body: "Meeting notes from the sync design session.",
-  tags: ["sync", "design"],
+  strings: { body: "Meeting notes from the sync design session." },
 });
 
 export const sampleBoardItem = makeRecord(EntityKind.BoardItem, {
-  id: "board-1",
-  kind: "note",
-  title: "Design sketch",
-  text: "Wireframe of the dashboard layout.",
-  positionX: 100,
-  positionY: 200,
-  width: 300,
-  height: 220,
-  zIndex: 0,
+  strings: { title: "Design sketch", text: "Wireframe of the dashboard layout." },
 });
 
 export const sampleVoiceMemo = makeRecord(EntityKind.VoiceMemo, {
-  id: "voice-1",
-  title: "Voice memo",
-  audioFileName: "voice-1.m4a",
-  duration: 12.5,
-  createdAt: "2026-01-01T00:00:00.000Z",
-  updatedAt: "2026-01-01T00:00:00.000Z",
+  strings: { title: "Voice memo" },
 });
 
 export const sampleWikiPage = makeRecord(EntityKind.WikiPage, {
-  id: "wiki-1",
-  title: "Sync architecture",
-  body: "How records and assets flow through the cloud.",
-  pageTypeRaw: "topic",
-  lifecycleRaw: "published",
-  confidenceRaw: "medium",
+  strings: { title: "Sync architecture", body: "How records and assets flow through the cloud." },
 });

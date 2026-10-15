@@ -1,23 +1,9 @@
-name = "workbench-cloud"
+name = "workbench-sync-api"
 main = "workers/api/src/index.ts"
-compatibility_date = "2024-10-17"
-compatibility_flags = ["d1_executable"]
+compatibility_date = "2025-10-08"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
 
-# --- Bindings ---------------------------------------------------------------
-[[d1_databases]]
-binding = "DB"
-database_name = "workbench-dev"
-database_id = "workbench-sync-db"
-
-[[r2_buckets]]
-binding = "ASSETS"
-bucket_name = "workbench-assets-dev"
-
-# --- Durable Objects --------------------------------------------------------
-[[durable_objects.always_enabled]]
-name = "WorkspaceSyncDO"
-class_name = "WorkspaceSyncDO"
-
-# --- Tracing ----------------------------------------------------------------
-[tracing]
-openTelemetry = true
+# Intentionally no D1, R2, or production routes are bound until the API is ready.
+[vars]
+SYNC_ENABLED = "false"

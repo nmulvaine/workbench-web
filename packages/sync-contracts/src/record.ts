@@ -1,102 +1,104 @@
-/**
- * The synced record is the unit of change. It carries a stable UUID, an entity
- * kind, a structured revision, a canonical-JSON payload, tombstone state, causal
- * history, and an idempotent mutation id. Every platform derives identical hashes
- * from these fields so the server can detect tampering and deduplicate retries.
- */
-import { EntityKind } from "./entity-kind.js";
+import { AI_ONLY_KINDS, EntityKind } from "./entity-kind.js";
 import type { Revision } from "./revision.js";
 
+/**
+ * Workbench Sync Protocol v1 record as encoded by workbench-sync-core.
+ * `payload` is the base64 encoded platform-neutral entity body. Unknown keys are
+ * retained because the native Rust representation flattens them into `unknown`.
+ * Mutation IDs are derived metadata and are intentionally not serialized.
+ */
 export interface SyncableRecord {
   readonly id: string;
-  readonly entityKind: EntityKind;
+  readonly entityKind: string;
   readonly schemaVersion: number;
   readonly revision: Revision;
-  /** Stable mutation identifier used to deduplicate retries and idempotent replays. */
-  readonly mutationID: string;
-  /** ISO-8601 timestamp of the last modification. */
   readonly modifiedAt: string;
   readonly isTombstone: boolean;
-  /** Canonical-JSON payload (unknown fields preserved). Empty for tombstones. */
-  readonly payload: unknown;
-  /** Causal history keyed by origin device id -> counter, used for conflict detection. */
+  readonly payload: string;
   readonly causalHistory?: Record<string, number>;
+  readonly [unknownField: string]: unknown;
 }
 
-/** Idempotent identifier for a mutation. Same value across retries and platforms. */
+/** Matches SyncRecord::mutation_id() including canonical UUID spelling. */
 export function recordMutationID(record: Pick<SyncableRecord, "entityKind" | "id" | "revision">): string {
-  return `${record.entityKind}:${record.id}:${record.revision.counter}:${record.revision.originDeviceID}`;
+  return `${record.entityKind}:${canonicalUUID(record.id)}:${record.revision.counter}:${canonicalUUID(record.revision.originDeviceID)}`;
+}
+
+function canonicalUUID(value: string): string {
+  const match = value.match(/^\{?([0-9a-f]{8})-?([0-9a-f]{4})-?([0-9a-f]{4})-?([0-9a-f]{4})-?([0-9a-f]{12})\}?$/i);
+  return match ? `${match[1]}-${match[2]}-${match[3]}-${match[4]}-${match[5]}`.toUpperCase() : value;
 }
 
 /**
- * Deterministic, key-sorted JSON serialization used for hashing and interop.
- * Unknown fields are preserved (sorted) so no data is lost across platforms.
+ * Rust's canonical JSON sorts object keys lexically, serializes compactly, then
+ * escapes forward slashes. Serialize objects manually so JS's special numeric
+ * property ordering cannot change the byte sequence.
  */
 export function canonicalJSON(value: unknown): string {
-  return JSON.stringify(canonicalSort(value));
-}
-
-function canonicalSort(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalSort);
-  if (value && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
-      out[key] = canonicalSort((value as Record<string, unknown>)[key]);
+  const encode = (current: unknown): string => {
+    if (current === null || typeof current !== "object") {
+      const encoded = JSON.stringify(current);
+      if (encoded === undefined) throw new TypeError("value is not JSON serializable");
+      return encoded;
     }
-    return out;
-  }
-  return value;
+    if (Array.isArray(current)) return `[${current.map(encode).join(",")}]`;
+
+    const object = current as Record<string, unknown>;
+    const keys = Object.keys(object).sort(compareUnicodeScalars);
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${encode(object[key])}`).join(",")}}`;
+  };
+  return encode(value).replace(/\//g, "\\/");
 }
 
-/** SHA-256 hex digest of a UTF-8 string. Uses the ambient Web Crypto / Node crypto. */
+function compareUnicodeScalars(left: string, right: string): number {
+  const a = Array.from(left, (character) => character.codePointAt(0)!);
+  const b = Array.from(right, (character) => character.codePointAt(0)!);
+  const length = Math.min(a.length, b.length);
+  for (let index = 0; index < length; index += 1) {
+    if (a[index] !== b[index]) return a[index] - b[index];
+  }
+  return a.length - b.length;
+}
+
+/** SHA-256 hex digest of canonical UTF-8 text. */
 export async function sha256Hex(input: string): Promise<string> {
   const data = new TextEncoder().encode(input);
   const hash = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  return Array.from(new Uint8Array(hash)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-/** Content-addressed hash of a record's canonical representation. */
+/** Hash the exact canonical protocol record bytes. */
 export async function hashRecord(record: SyncableRecord): Promise<string> {
-  const body = JSON.stringify({
-    id: record.id,
-    mutationID: recordMutationID(record),
-    entityKind: record.entityKind,
-    schemaVersion: record.schemaVersion,
-    revision: record.revision,
-    modifiedAt: record.modifiedAt,
-    isTombstone: record.isTombstone,
-    payload: canonicalJSON(record.payload),
-  });
-  return sha256Hex(body);
+  return sha256Hex(canonicalJSON(record));
 }
 
-/** Content-addressed hash of a record including its causal history. */
+/** Hash a record while retaining all causal and extension fields. */
 export async function hashRecordWithHistory(record: SyncableRecord): Promise<string> {
-  const body = JSON.stringify({ ...record, causalHistory: canonicalJSON(record.causalHistory ?? {}) });
-  return sha256Hex(body);
+  return hashRecord(record);
 }
 
-/** Basic structural validation of a received record. Throws on violation. */
+/** Structural validation compatible with the native serde representation. */
 export function validateRecord(record: unknown): asserts record is SyncableRecord {
-  if (!record || typeof record !== "object") throw new TypeError("record must be an object");
-  const r = record as Record<string, unknown>;
-  for (const key of ["id", "entityKind", "schemaVersion", "revision", "mutationID", "modifiedAt", "isTombstone", "payload"]) {
-    if (!(key in r)) throw new TypeError(`record missing field "${key}"`);
+  if (!record || typeof record !== "object" || Array.isArray(record)) throw new TypeError("record must be an object");
+  const value = record as Record<string, unknown>;
+  for (const key of ["id", "entityKind", "revision", "modifiedAt", "payload"]) {
+    if (!(key in value)) throw new TypeError(`record missing field "${key}"`);
   }
-  if (!r.id || typeof r.id !== "string") throw new TypeError("invalid record id");
-  if (typeof r.entityKind !== "string" || !Object.values(EntityKind).includes(r.entityKind as EntityKind)) {
-    throw new TypeError(`invalid entityKind "${String(r.entityKind)}"`);
+  if (typeof value.id !== "string" || !value.id) throw new TypeError("invalid record id");
+  if (typeof value.entityKind !== "string" || !value.entityKind) throw new TypeError("invalid entityKind");
+  if (value.schemaVersion !== undefined && (!Number.isInteger(value.schemaVersion) || Number(value.schemaVersion) < 1)) {
+    throw new TypeError("invalid schemaVersion");
   }
-  const schemaVersion = Number(r.schemaVersion);
-  if (!Number.isInteger(schemaVersion) || schemaVersion < 1) throw new TypeError("invalid schemaVersion");
-  const revision = r.revision as Record<string, unknown>;
-  if (typeof revision !== "object" || !revision.counter || typeof revision.originDeviceID !== "string") {
+  const revision = value.revision as Record<string, unknown>;
+  if (!revision || typeof revision !== "object" || !Number.isSafeInteger(revision.counter) || Number(revision.counter) < 0 || typeof revision.originDeviceID !== "string") {
     throw new TypeError("invalid revision");
   }
-  if (typeof r.mutationID !== "string" || r.mutationID.length === 0) throw new TypeError("invalid mutationID");
-  if (r.mutationID !== recordMutationID(r as Pick<SyncableRecord, "entityKind" | "id" | "revision">)) {
-    throw new TypeError("mutationID does not match record identity");
-  }
-  if (!r.modifiedAt || typeof r.modifiedAt !== "string") throw new TypeError("invalid modifiedAt");
-  if (typeof r.isTombstone !== "boolean") throw new TypeError("invalid isTombstone");
+  if (typeof value.modifiedAt !== "string" || !value.modifiedAt) throw new TypeError("invalid modifiedAt");
+  if (value.isTombstone !== undefined && typeof value.isTombstone !== "boolean") throw new TypeError("invalid isTombstone");
+  if (typeof value.payload !== "string") throw new TypeError("payload must be a base64 string");
+}
+
+/** Known AI-only kinds are held back by product policy, not the open wire enum. */
+export function isAIOnlyKind(kind: string): boolean {
+  return AI_ONLY_KINDS.has(kind as EntityKind);
 }

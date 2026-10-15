@@ -44,7 +44,7 @@ export function mergeDecision(
     return MergeDecision.acceptRemote;
   }
   if ((localCausal[remote.revision.originDeviceID] ?? 0) >= remote.revision.counter && remote.revision.counter > 0) {
-    return MergeDecision.acceptRemote;
+    return MergeDecision.keepLocal;
   }
 
   // Both sides carry causal history and differ -> conflict.
@@ -55,10 +55,13 @@ export function mergeDecision(
     }
   }
 
-  // Same revision, differing payload on a text-bearing kind -> conflict copy.
+  // Same counter from independent devices is concurrent, even when the kind
+  // does not create a text conflict copy. Preserve native tie behavior below.
   if (remote.revision.counter === local.revision.counter &&
-      remote.payload !== local.payload && preservesConcurrentTextEdits(remote.entityKind)) {
-    return MergeDecision.preserveConflict;
+      remote.revision.originDeviceID !== local.revision.originDeviceID &&
+      remote.payload !== local.payload) {
+    if (preservesConcurrentTextEdits(remote.entityKind)) return MergeDecision.preserveConflict;
+    return MergeDecision.keepLocal;
   }
 
   // Fall back to revision ordering, then last-modified timestamp.

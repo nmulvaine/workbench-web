@@ -16,9 +16,7 @@
     "types": ["node"],
     "baseUrl": ".",
     "paths": {
-      "@workbench/sync-contracts": ["packages/sync-contracts/src/index.ts"],
-      "@workbench/domain": ["packages/domain/src/index.ts"],
-      "@workbench/storage": ["packages/storage/src/index.ts"]
+      "@workbench/sync-contracts": ["packages/sync-contracts/src/index.ts"]
     }
   }
 }

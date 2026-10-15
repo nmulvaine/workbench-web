@@ -5,11 +5,9 @@
  * idempotency, conflict, and observability logic can be unit-tested in isolation.
  * The Workers entrypoint wires these pure functions to D1/R2/Durable Objects.
  */
-import { AI_ONLY_KINDS } from "../../../packages/sync-contracts/src/entity-kind.js";
+import { isAIOnlyKind } from "../../../packages/sync-contracts/src/record.js";
 import type { SyncableRecord } from "../../../packages/sync-contracts/src/record.js";
 import { recordMutationID } from "../../../packages/sync-contracts/src/record.js";
-import type { Revision } from "../../../packages/sync-contracts/src/revision.js";
-import { makeRevision } from "../../../packages/sync-contracts/src/revision.js";
 import { hashRecord } from "../../../packages/sync-contracts/src/record.js";
 import { mergeDecision } from "../../../packages/sync-contracts/src/conflict.js";
 import type { Acknowledgement } from "../../../packages/sync-contracts/src/acknowledgement.js";
@@ -43,7 +41,7 @@ export interface CommitResult {
 }
 
 function isAiOnly(record: SyncableRecord): boolean {
-  return AI_ONLY_KINDS.has(record.entityKind);
+  return isAIOnlyKind(record.entityKind);
 }
 
 /**
@@ -61,13 +59,14 @@ export function authorize(identity: DeviceIdentity | undefined, record: Syncable
  * replay of our own change and must be dropped without consuming a sequence slot.
  */
 export function dedupe(sequence: number, record: SyncableRecord, existing: Mutation[]): boolean {
-  const seen = new Set(existing.map((m) => m.record.mutationID));
-  if (seen.has(record.mutationID)) return true;
+  const mutationID = recordMutationID(record);
+  const seen = new Set(existing.map((m) => recordMutationID(m.record)));
+  if (seen.has(mutationID)) return true;
   // A tombstoned mutation id is permanently consumed.
-  for (const ack of existing.filter((m) => m.record.isTombstone).map((m) => m.record.mutationID)) {
+  for (const ack of existing.filter((m) => m.record.isTombstone).map((m) => recordMutationID(m.record))) {
     seen.add(ack);
   }
-  seen.add(record.mutationID);
+  seen.add(mutationID);
   return false;
 }
 
@@ -131,7 +130,7 @@ export async function commitEnvelope(
     if (outcome === "idempotent") {
       // Replay of our own change: keep the prior authoritative copy but still register the sequence.
       const priorPayload = existing.find((m) => m.record.id === record.id)?.record.payload;
-      committedRecord = { ...committedRecord, payload: priorPayload };
+      committedRecord = priorPayload === undefined ? committedRecord : { ...committedRecord, payload: priorPayload };
     } else if (outcome === "conflict") {
       conflicts += 1;
       if (isAiOnly(committedRecord)) {
@@ -141,7 +140,6 @@ export async function commitEnvelope(
       const conflictCopy = {
         ...committedRecord,
         id: `${committedRecord.id}:conflict:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
-        mutationID: recordMutationID({ ...committedRecord, id: committedRecord.id, revision: makeRevision(0, "server") }),
         isTombstone: false,
         payload: committedRecord.payload,
       };

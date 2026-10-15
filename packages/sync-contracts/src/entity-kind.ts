@@ -72,18 +72,19 @@ export const AI_ONLY_KINDS: ReadonlySet<EntityKind> = new Set([
 export const TEXT_BEARING_KINDS: ReadonlySet<EntityKind> = new Set([
   EntityKind.Idea,
   EntityKind.Project,
-  EntityKind.Note,
+  EntityKind.VoiceMemo,
   EntityKind.BoardItem,
   EntityKind.WikiPage,
+  EntityKind.BrainstormTurn,
 ]);
 
 /** Whether a kind supports conflict-aware concurrent text edit preservation. */
-export function preservesConcurrentTextEdits(kind: EntityKind): boolean {
-  return TEXT_BEARING_KINDS.has(kind);
+export function preservesConcurrentTextEdits(kind: string): boolean {
+  return TEXT_BEARING_KINDS.has(kind as EntityKind);
 }
 
 /** Whether a kind is allowed to sync at all (excludes AI-only kinds). */
-export function isSyncableKind(kind: EntityKind): boolean {
-  if (!Object.values(EntityKind).includes(kind)) return false;
-  return !AI_ONLY_KINDS.has(kind);
+export function isSyncableKind(kind: string): boolean {
+  if (!Object.values(EntityKind).includes(kind as EntityKind)) return false;
+  return !AI_ONLY_KINDS.has(kind as EntityKind);
 }

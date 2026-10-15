@@ -10,6 +10,7 @@ import { validateRecord } from "./record.js";
 import type { SyncableRecord } from "./record.js";
 
 export interface ChangeEnvelope {
+  readonly id: string;
   readonly protocolVersion: number;
   readonly workspaceID: string;
   readonly senderDeviceID: string;
@@ -19,7 +20,11 @@ export interface ChangeEnvelope {
   readonly records: SyncableRecord[];
   readonly assets: AssetManifest[];
   readonly createdAt: string;
+  /** Unknown envelope fields are retained by the Rust protocol representation. */
+  readonly [unknownField: string]: unknown;
 }
+
+export const WORKBENCH_WORKSPACE_ID = "574F524B-4245-4E43-4853-594E43000001";
 
 export function totalAssetBytes(envelope: ChangeEnvelope): number {
   return envelope.assets.reduce((sum, a) => sum + a.byteCount, 0);
@@ -29,17 +34,18 @@ export function totalAssetBytes(envelope: ChangeEnvelope): number {
 export function validateEnvelope(envelope: unknown): asserts envelope is ChangeEnvelope {
   if (!envelope || typeof envelope !== "object") throw new TypeError("envelope must be an object");
   const e = envelope as Record<string, unknown>;
-  for (const key of ["protocolVersion", "workspaceID", "senderDeviceID", "sequenceStart", "sequenceEnd", "createdAt"]) {
+  for (const key of ["id", "protocolVersion", "workspaceID", "senderDeviceID", "sequenceStart", "sequenceEnd", "createdAt"]) {
     if (!(key in e)) throw new TypeError(`envelope missing field "${key}"`);
   }
   if (!Number.isInteger(e.protocolVersion) || e.protocolVersion !== CURRENT_PROTOCOL_VERSION) {
     throw new TypeError(`unsupported protocolVersion ${e.protocolVersion}`);
   }
-  if (!e.workspaceID || typeof e.workspaceID !== "string") throw new TypeError("invalid workspaceID");
+  if (typeof e.id !== "string" || !e.id) throw new TypeError("invalid envelope id");
+  if (e.workspaceID !== WORKBENCH_WORKSPACE_ID) throw new TypeError("workspace identity does not match Workbench");
   if (!e.senderDeviceID || typeof e.senderDeviceID !== "string") throw new TypeError("invalid senderDeviceID");
   const sequenceStart = Number(e.sequenceStart);
   const sequenceEnd = Number(e.sequenceEnd);
-  if (!Number.isInteger(sequenceStart) || !Number.isInteger(sequenceEnd)) {
+  if (!Number.isSafeInteger(sequenceStart) || !Number.isSafeInteger(sequenceEnd) || sequenceStart < 0 || sequenceEnd < 0) {
     throw new TypeError("sequence range must be integers");
   }
   if (sequenceEnd < sequenceStart) throw new TypeError("sequenceEnd before sequenceStart");

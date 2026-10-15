@@ -1,0 +1,105 @@
+---
+import BaseHead from '../components/BaseHead.astro';
+import { SITE_DESCRIPTION, SITE_TITLE } from '../consts';
+---
+
+<!doctype html>
+<html lang="en">
+	<head>
+		<BaseHead title={SITE_TITLE} description={SITE_DESCRIPTION} />
+	</head>
+	<body>
+		<div class="workspace-shell">
+			<aside class="sidebar" aria-label="Workspace navigation">
+				<a class="brand" href="/" aria-label="Workbench home"><span class="brand-mark">W</span><span>Workbench</span></a>
+				<div class="workspace-picker"><span class="workspace-avatar">P</span><span><strong>Personal workspace</strong><small>Local workspace</small></span><span class="chevron" aria-hidden="true">⌄</span></div>
+				<p class="nav-label">WORKSPACE</p>
+				<nav class="primary-nav" aria-label="Main">
+					<a class="nav-item active" href="#overview" data-view="overview"><span aria-hidden="true">⌂</span>Overview</a>
+					<a class="nav-item" href="#projects" data-view="projects"><span aria-hidden="true">▦</span>Projects</a>
+					<a class="nav-item" href="#thoughts" data-view="thoughts"><span aria-hidden="true">✳</span>Thoughts</a>
+					<a class="nav-item" href="#tasks" data-view="tasks"><span aria-hidden="true">☷</span>Tasks</a>
+					<a class="nav-item" href="#notes" data-view="notes"><span aria-hidden="true">▤</span>Notes</a>
+					<a class="nav-item" href="#canvas" data-view="canvas"><span aria-hidden="true">▧</span>Canvas</a>
+					<a class="nav-item" href="#wiki" data-view="wiki"><span aria-hidden="true">⌘</span>Wiki</a>
+				</nav>
+				<div class="sidebar-bottom">
+					<a class="nav-item" href="#settings" data-view="settings"><span aria-hidden="true">⚙</span>Settings</a>
+					<div class="profile"><span class="profile-avatar">N</span><span><strong>Personal account</strong><small>Sync not connected</small></span><span class="more" aria-hidden="true">···</span></div>
+				</div>
+			</aside>
+
+			<main class="main-area">
+				<header class="topbar">
+					<button class="mobile-menu" type="button" aria-label="Toggle workspace navigation" aria-expanded="false">☰</button>
+					<div class="breadcrumbs"><span>Personal workspace</span><span aria-hidden="true">/</span><strong id="crumb-current">Overview</strong></div>
+					<div class="topbar-actions"><span class="offline-pill"><span></span>Local only</span><button class="icon-button" type="button" aria-label="Help">?</button><span class="top-avatar" aria-label="Personal account">N</span></div>
+				</header>
+
+				<div class="content-wrap">
+					<section class="view-panel" id="view-overview" data-panel="overview">
+						<div class="welcome-row"><div><p class="eyebrow" id="today-label">YOUR WORKSPACE</p><h1 id="greeting">Welcome back</h1><p class="subheading">Your ideas, projects, and plans have a place to grow.</p></div><span class="welcome-mark" aria-hidden="true">✦</span></div>
+						<div class="status-banner"><span class="status-icon" aria-hidden="true">☁</span><div><strong>Cloud sync is not connected yet</strong><p>This workspace stays local until secure sign-in and sync are ready. Your current files are not being uploaded.</p></div><span class="status-tag">SETUP IN PROGRESS</span></div>
+						<div class="section-heading"><div><h2>Your workspace</h2><p>Choose a space to start organizing your work.</p></div></div>
+						<div class="feature-grid">
+							<a class="feature-card lavender" href="#projects" data-view="projects"><span class="feature-icon">▦</span><span class="feature-title">Projects</span><span class="feature-copy">Organize work into focused spaces.</span><span class="feature-arrow">↗</span></a>
+							<a class="feature-card peach" href="#thoughts" data-view="thoughts"><span class="feature-icon">✳</span><span class="feature-title">Thoughts</span><span class="feature-copy">Capture ideas before they disappear.</span><span class="feature-arrow">↗</span></a>
+							<a class="feature-card mint" href="#tasks" data-view="tasks"><span class="feature-icon">☷</span><span class="feature-title">Tasks</span><span class="feature-copy">Keep the next steps in sight.</span><span class="feature-arrow">↗</span></a>
+							<a class="feature-card blue" href="#notes" data-view="notes"><span class="feature-icon">▤</span><span class="feature-title">Notes</span><span class="feature-copy">Give your working notes a home.</span><span class="feature-arrow">↗</span></a>
+							<a class="feature-card yellow" href="#canvas" data-view="canvas"><span class="feature-icon">▧</span><span class="feature-title">Canvas</span><span class="feature-copy">Explore visual thinking and sketches.</span><span class="feature-arrow">↗</span></a>
+							<a class="feature-card rose" href="#wiki" data-view="wiki"><span class="feature-icon">⌘</span><span class="feature-title">Wiki</span><span class="feature-copy">Build a connected knowledge library.</span><span class="feature-arrow">↗</span></a>
+						</div>
+						<div class="lower-grid"><section class="panel"><div class="panel-heading"><div><h2>Recent activity</h2><p>Updates from across your workspace.</p></div><span class="quiet-badge">LOCAL</span></div><div class="empty-state"><span class="empty-icon">✧</span><strong>Your activity will appear here</strong><p>Create something in your workspace to get started.</p></div></section><section class="panel sync-panel"><div class="panel-heading"><div><h2>Sync status</h2><p>Connect your devices when sync is available.</p></div><span class="sync-dot"></span></div><div class="device-row"><span class="device-icon">⌘</span><span><strong>This browser</strong><small>Local workspace</small></span><span class="device-state">THIS DEVICE</span></div><div class="sync-footnote">Automatic sync is disabled while the service is under development.</div></section></div>
+					</section>
+
+					<section class="view-panel feature-view" id="view-feature" data-panel="feature" hidden>
+						<p class="eyebrow" id="feature-eyebrow">WORKSPACE</p><div class="feature-view-heading"><div><h1 id="feature-heading">Projects</h1><p class="subheading" id="feature-description"></p></div><button class="disabled-action" type="button" disabled aria-disabled="true">＋ Create</button></div>
+						<div class="status-banner compact"><span class="status-icon" aria-hidden="true">◷</span><div><strong>This workspace area is being connected</strong><p>The local-first data model and editing flow are still in development. No sample content is shown as if it were your data.</p></div></div>
+						<div class="panel feature-empty"><span class="empty-icon">✧</span><strong id="feature-empty-title">Nothing here yet</strong><p>When this area is ready, your real workspace content will appear here.</p></div>
+					</section>
+				</div>
+				<footer class="app-footer"><span>Workbench</span><span>Local-first workspace</span></footer>
+			</main>
+		</div>
+		<script>
+			const labels = { overview: ['Overview', '', ''], projects: ['Projects', 'Organize work into focused spaces.', 'No projects yet'], thoughts: ['Thoughts', 'Capture ideas and turn them into meaningful work.', 'No thoughts yet'], tasks: ['Tasks', 'Keep the next steps in sight.', 'No tasks yet'], notes: ['Notes', 'Keep working notes alongside your projects.', 'No notes yet'], canvas: ['Canvas', 'Think visually with boards, drawings, and media.', 'No canvases yet'], wiki: ['Wiki', 'Build a connected library of knowledge.', 'No pages yet'], settings: ['Settings', 'Manage your workspace preferences and connected devices.', 'Settings are not available yet'] };
+			const links = [...document.querySelectorAll('[data-view]')];
+			const overview = document.querySelector('[data-panel="overview"]');
+			const feature = document.querySelector('[data-panel="feature"]');
+			function showView(view) {
+				const [label, description, emptyTitle] = labels[view] ?? labels.overview;
+				const isOverview = view === 'overview';
+				overview.hidden = !isOverview;
+				feature.hidden = isOverview;
+				document.querySelector('#crumb-current').textContent = label;
+				document.querySelector('#feature-heading').textContent = label;
+				document.querySelector('#feature-description').textContent = description;
+				document.querySelector('#feature-empty-title').textContent = emptyTitle;
+				links.forEach((link) => link.classList.toggle('active', link.dataset.view === view));
+				history.replaceState(null, '', isOverview ? '/' : `#${view}`);
+			}
+			links.forEach((link) => link.addEventListener('click', (event) => { event.preventDefault(); showView(link.dataset.view); }));
+			const menuButton = document.querySelector('.mobile-menu');
+			menuButton.addEventListener('click', () => {
+				const expanded = menuButton.getAttribute('aria-expanded') === 'true';
+				menuButton.setAttribute('aria-expanded', String(!expanded));
+				document.querySelector('.sidebar').classList.toggle('mobile-open', !expanded);
+			});
+			const initial = location.hash.slice(1);
+			if (labels[initial]) showView(initial);
+			const now = new Date();
+			document.querySelector('#today-label').textContent = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).format(now).toUpperCase();
+			const hour = now.getHours();
+			document.querySelector('#greeting').textContent = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+		</script>
+		<style>
+			:global(:root){--ink:#24262d;--muted:#747783;--line:#e9e9ed;--surface:#fff;--canvas:#f7f7f9;--purple:#6e5bd0;--accent:#6e5bd0;--black:36,38,45;--gray:116,119,131;--gray-light:233,233,237;--gray-dark:36,38,45;--gray-gradient:#f7f7f9;--box-shadow:0 8px 30px rgba(32,30,49,.06)}
+			:global(body){margin:0;background:var(--canvas);color:var(--ink);font:14px/1.5 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh}
+			:global(a){color:inherit}.workspace-shell{min-height:100vh}.sidebar{position:fixed;inset:0 auto 0 0;width:244px;padding:22px 14px 16px;background:#fff;border-right:1px solid var(--line);display:flex;flex-direction:column;z-index:5}.brand{display:flex;align-items:center;gap:10px;padding:0 11px 25px;text-decoration:none;font-size:17px;font-weight:750;letter-spacing:-.4px}.brand-mark{width:28px;height:28px;border-radius:9px;background:#7160ce;color:white;display:grid;place-items:center;font-size:16px}.workspace-picker{display:flex;align-items:center;gap:9px;padding:9px;border:1px solid var(--line);border-radius:10px;margin-bottom:27px}.workspace-avatar,.profile-avatar{width:31px;height:31px;border-radius:9px;display:grid;place-items:center;background:#eeeafe;color:#6451bf;font-weight:700}.workspace-picker strong,.profile strong{display:block;font-size:12px}.workspace-picker small,.profile small{display:block;color:var(--muted);font-size:11px;margin-top:1px}.chevron{margin-left:auto;color:var(--muted)}.nav-label,.eyebrow{color:#92939b;font-weight:700;font-size:10px;letter-spacing:1.05px}.nav-label{margin:0 10px 8px}.primary-nav{display:grid;gap:3px}.nav-item{height:37px;display:flex;align-items:center;gap:11px;border-radius:8px;padding:0 11px;text-decoration:none;color:#666975;font-size:13px}.nav-item>span{font-size:17px;width:17px;text-align:center;color:#858692}.nav-item:hover{background:#f7f6fb}.nav-item.active{background:#f0edfc;color:#5c4abb;font-weight:650}.nav-item.active>span{color:#6653c4}.sidebar-bottom{margin-top:auto}.profile{display:flex;align-items:center;gap:9px;padding:15px 7px 0;margin-top:12px;border-top:1px solid var(--line)}.more{margin-left:auto;font-size:20px;color:#7d7f89}.profile-avatar{background:#fcebdc;color:#b26a38}.main-area{margin-left:244px;min-height:100vh;display:flex;flex-direction:column}.topbar{height:58px;flex:none;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 34px}.breadcrumbs,.topbar-actions{display:flex;align-items:center;gap:11px;color:#858691;font-size:12px}.breadcrumbs strong{color:#4c4d55;font-weight:600}.topbar-actions{gap:15px}.offline-pill{display:flex;align-items:center;gap:6px;border:1px solid #e8e5f6;background:#faf9ff;color:#70669b;border-radius:20px;padding:5px 9px;font-size:11px}.offline-pill span,.sync-dot{width:7px;height:7px;border-radius:50%;background:#d8a447}.icon-button{width:25px;height:25px;border:1px solid #dedee4;border-radius:50%;background:white;color:#777;font-weight:600}.top-avatar{width:27px;height:27px;border-radius:50%;display:grid;place-items:center;background:#fcebdc;color:#ad6536;font-weight:700}.mobile-menu{display:none}.content-wrap{width:min(1120px,100%);box-sizing:border-box;margin:0 auto;padding:38px 48px 34px;flex:1}.welcome-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}.eyebrow{margin:0 0 7px}.welcome-row h1,.feature-view h1{font-size:29px;line-height:1.15;letter-spacing:-.8px;margin:0;font-weight:680}.subheading{font-size:13px;color:var(--muted);margin:7px 0 0}.welcome-mark{font-size:47px;color:#e3dcfa;margin-right:23px}.status-banner{display:flex;align-items:center;gap:13px;background:#fff;border:1px solid #ece8f7;border-radius:11px;padding:15px 17px;margin-bottom:29px;box-shadow:0 2px 6px rgba(35,32,63,.025)}.status-icon{width:34px;height:34px;border-radius:10px;background:#f2effb;color:#7664ce;display:grid;place-items:center;font-size:17px;flex:none}.status-banner strong{font-size:12px}.status-banner p{font-size:11px;color:var(--muted);margin:3px 0 0}.status-tag{margin-left:auto;color:#8b7d56;background:#fbf7e9;padding:5px 8px;border-radius:6px;white-space:nowrap;font-size:9px;font-weight:750;letter-spacing:.65px}.section-heading{margin-bottom:13px}.section-heading h2,.panel h2{margin:0;font-size:15px;letter-spacing:-.15px}.section-heading p,.panel-heading p{font-size:11px;color:var(--muted);margin:3px 0 0}.feature-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.feature-card{position:relative;min-height:120px;box-sizing:border-box;border:1px solid var(--line);border-radius:11px;padding:15px 16px;text-decoration:none;transition:transform .15s ease,box-shadow .15s ease}.feature-card:hover{transform:translateY(-2px);box-shadow:var(--box-shadow)}.feature-icon{display:grid;place-items:center;width:28px;height:28px;border-radius:8px;font-size:16px;margin-bottom:12px}.feature-title{display:block;font-weight:650;font-size:12px}.feature-copy{display:block;font-size:11px;color:#777984;margin-top:2px}.feature-arrow{position:absolute;right:15px;top:16px;color:#92939b;font-size:13px}.lavender{background:#faf9ff}.lavender .feature-icon{background:#eeeafe;color:#715dc8}.peach{background:#fff9f5}.peach .feature-icon{background:#fbeddf;color:#b77040}.mint{background:#f5fbf8}.mint .feature-icon{background:#e3f4eb;color:#498f68}.blue{background:#f5f9ff}.blue .feature-icon{background:#e5effc;color:#4e7eb7}.yellow{background:#fffcf3}.yellow .feature-icon{background:#f8f0d9;color:#a58730}.rose{background:#fff7fa}.rose .feature-icon{background:#f9e9f0;color:#ac5d81}.lower-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:13px;margin-top:19px}.panel{background:white;border:1px solid var(--line);border-radius:11px;padding:16px}.panel-heading{display:flex;align-items:flex-start;justify-content:space-between}.quiet-badge{border:1px solid var(--line);border-radius:5px;color:#8a8b94;font-size:8px;font-weight:700;letter-spacing:.65px;padding:3px 6px}.empty-state{min-height:116px;display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center}.empty-icon{color:#aa9ce3;font-size:25px;line-height:1;margin-bottom:9px}.empty-state strong,.feature-empty strong{font-size:11px}.empty-state p,.feature-empty p{color:var(--muted);font-size:10px;margin:3px 0 0}.sync-panel{padding-bottom:12px}.sync-panel .panel-heading{margin-bottom:17px}.sync-dot{margin:5px 4px 0 0;background:#d4a23e}.device-row{display:flex;align-items:center;gap:9px;padding:10px 0;border-top:1px solid #f0f0f2;border-bottom:1px solid #f0f0f2}.device-icon{width:27px;height:27px;display:grid;place-items:center;border-radius:8px;background:#f3f1fa;color:#7160bd}.device-row strong,.device-row small{display:block;font-size:10px}.device-row small{color:var(--muted);font-size:9px}.device-state{margin-left:auto;font-size:8px;color:#858691;letter-spacing:.45px}.sync-footnote{font-size:9px;color:#83858f;padding-top:10px}.app-footer{display:flex;gap:17px;align-items:center;padding:13px 48px;border-top:1px solid var(--line);font-size:10px;color:#898a93}.app-footer span:first-child{font-weight:700;color:#5e6069}.app-footer a{margin-left:auto;color:#777984;text-decoration:none}.feature-view{min-height:500px}.feature-view-heading{display:flex;align-items:flex-end;justify-content:space-between;margin:0 0 23px}.feature-view .eyebrow{margin-bottom:9px}.disabled-action{border:1px solid var(--line);background:#f0f0f2;color:#999aa2;border-radius:7px;padding:8px 12px;font-size:11px}.status-banner.compact{margin:0 0 16px}.feature-empty{min-height:230px;display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center}.feature-empty .empty-icon{font-size:32px}
+			@media(max-width:1000px){.content-wrap{padding:32px 28px}.topbar{padding:0 25px}.feature-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.lower-grid{grid-template-columns:1fr}.sidebar{width:215px}.main-area{margin-left:215px}.app-footer{padding-inline:28px}}
+			@media(max-width:700px){.sidebar{transform:translateX(-100%);transition:transform .2s ease;box-shadow:none}.sidebar.mobile-open{transform:translateX(0);box-shadow:10px 0 30px rgba(20,20,30,.13)}.main-area{margin-left:0}.topbar{height:54px;padding:0 16px;gap:12px}.mobile-menu{display:block;border:0;background:transparent;color:#656671;font-size:18px;padding:4px}.breadcrumbs{margin-right:auto;gap:7px}.offline-pill{font-size:0;padding:8px}.offline-pill span{width:8px;height:8px}.topbar-actions{gap:9px}.content-wrap{padding:29px 18px}.welcome-row h1,.feature-view h1{font-size:25px}.welcome-mark{font-size:38px;margin-right:7px}.status-banner{align-items:flex-start;padding:13px;gap:10px}.status-tag{display:none}.feature-grid{gap:9px}.feature-card{min-height:116px;padding:13px}.feature-copy{max-width:170px}.lower-grid{gap:10px}.app-footer{padding:12px 18px}.feature-view-heading{align-items:flex-start;gap:12px}.disabled-action{white-space:nowrap}.status-banner p{line-height:1.45}}
+			@media(max-width:390px){.feature-grid{grid-template-columns:1fr}.feature-card{min-height:95px}.feature-icon{margin-bottom:7px}.breadcrumbs{font-size:11px}.content-wrap{padding-inline:14px}}
+			@media(prefers-reduced-motion:reduce){.feature-card,.sidebar{transition:none}}
+		</style>
+	</body>
+</html>

@@ -8,7 +8,7 @@ import { sha256Hex } from "./record.js";
 export interface AssetManifest {
   readonly id: string;
   /** Owner record id (nil on legacy manifests that used `id`). */
-  readonly ownerRecordID?: string | null;
+  readonly ownerRecordID?: string;
   /** Content hash of the full asset. Must match before exposure. */
   readonly contentHash: string;
   readonly byteCount: number;
@@ -16,9 +16,10 @@ export interface AssetManifest {
   /** Logical path within the workspace (e.g. "projects/123/photos/photo-uuid.png"). */
   readonly logicalPath: string;
   /** Chunk size in bytes for resumable uploads. */
-  readonly chunkSize: number;
+  readonly chunkSize?: number;
   /** Per-chunk hashes, ordered by offset. */
-  readonly chunkHashes: string[];
+  readonly chunkHashes?: string[];
+  readonly [unknownField: string]: unknown;
 }
 
 export function assetMutationID(manifest: AssetManifest): string {
@@ -27,8 +28,7 @@ export function assetMutationID(manifest: AssetManifest): string {
 
 /** Content hash of the manifest itself (stable across platforms). */
 export async function hashAssetManifest(manifest: AssetManifest): Promise<string> {
-  const body = JSON.stringify({ id: manifest.id, contentHash: manifest.contentHash, byteCount: manifest.byteCount });
-  return sha256Hex(body);
+  return sha256Hex(JSON.stringify({ id: manifest.id, contentHash: manifest.contentHash, byteCount: manifest.byteCount }));
 }
 
 /** Validate a received asset manifest. Throws on violation. */
@@ -39,12 +39,18 @@ export function validateAsset(manifest: unknown): asserts manifest is AssetManif
     if (!(key in m)) throw new TypeError(`asset missing field "${key}"`);
   }
   if (!m.id || typeof m.id !== "string") throw new TypeError("invalid asset id");
-  if (typeof m.contentHash !== "string" || !m.contentHash) throw new TypeError("invalid contentHash");
+  if (typeof m.contentHash !== "string" || !/^[0-9a-f]{64}$/i.test(m.contentHash)) throw new TypeError("invalid contentHash");
   const byteCount = Number(m.byteCount);
-  if (!Number.isInteger(byteCount) || byteCount < 0) throw new TypeError("invalid byteCount");
+  if (!Number.isSafeInteger(byteCount) || byteCount < 0) throw new TypeError("invalid byteCount");
   if (typeof m.mediaType !== "string") throw new TypeError("invalid mediaType");
   if (typeof m.logicalPath !== "string" || !m.logicalPath) throw new TypeError("invalid logicalPath");
-  const chunkSize = Number(m.chunkSize);
-  if (!Number.isInteger(chunkSize) || chunkSize <= 0) throw new TypeError("invalid chunkSize");
-  if (!Array.isArray(m.chunkHashes)) throw new TypeError("chunkHashes must be an array");
+  if (m.ownerRecordID !== undefined && typeof m.ownerRecordID !== "string") throw new TypeError("invalid ownerRecordID");
+  if (m.chunkSize !== undefined && (!Number.isSafeInteger(m.chunkSize) || Number(m.chunkSize) < 0)) throw new TypeError("invalid chunkSize");
+  if (m.chunkHashes !== undefined && (!Array.isArray(m.chunkHashes) || m.chunkHashes.some((hash) => typeof hash !== "string"))) {
+    throw new TypeError("chunkHashes must be an array of strings");
+  }
+  const path = m.logicalPath as string;
+  if (path.startsWith("/") || path.includes("\\") || path.split("/").some((part) => part === ".." || part === "." || part === "")) {
+    throw new TypeError("unsafe logicalPath");
+  }
 }

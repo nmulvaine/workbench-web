@@ -1,236 +1,135 @@
-import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
 import {
-  EntityKind,
   AI_ONLY_KINDS,
-  preservesConcurrentTextEdits,
   CURRENT_PROTOCOL_VERSION,
-  makeRevision,
-  revisionsEqual,
-  revisionGreater,
-  recordMutationID,
+  EntityKind,
+  MergeDecision,
+  WORKBENCH_WORKSPACE_ID,
+  after,
   canonicalJSON,
   hashRecord,
-  validateRecord,
-  MergeDecision,
+  makeRevision,
   mergeDecision,
+  preservesConcurrentTextEdits,
+  recordMutationID,
+  revisionGreater,
+  revisionsEqual,
   validateAsset,
   validateEnvelope,
-  after,
+  validateRecord,
 } from "../src/index.js";
-import {
-  FIXTURE_WORKSPACE_ID,
-  FIXTURE_DEVICE_A,
-  FIXTURE_DEVICE_B,
-  makeRecord,
-  sampleProject,
-  sampleIdea,
-  sampleTask,
-  sampleNote,
-  sampleBoardItem,
-  sampleVoiceMemo,
-  sampleWikiPage,
-} from "../src/fixtures.js";
+import { encodePayload, FIXTURE_DEVICE_A, FIXTURE_DEVICE_B, FIXTURE_WORKSPACE_ID, makeRecord } from "../src/fixtures.js";
+import type { ChangeEnvelope } from "../src/envelope.js";
+import type { SyncableRecord } from "../src/record.js";
 
-describe("revision ordering", () => {
-  it("orders by counter then origin device id", () => {
-    const a = makeRevision(1, "dev-a");
-    const b = makeRevision(2, "dev-a");
-    const c = makeRevision(1, "dev-b");
+const protocolEnvelope = readFileSync(new URL("./fixtures/protocol-v1-envelope.json", import.meta.url), "utf8").trim();
+const tombstoneAssetsEnvelope = readFileSync(new URL("./fixtures/apple-protocol-v1-tombstone-assets.json", import.meta.url), "utf8").trim();
+
+describe("native Workbench Sync Protocol v1 fixtures", () => {
+  it("accepts and canonically re-encodes the Rust protocol envelope byte-for-byte", () => {
+    const envelope = JSON.parse(protocolEnvelope);
+    expect(() => validateEnvelope(envelope)).not.toThrow();
+    expect(canonicalJSON(envelope)).toBe(protocolEnvelope);
+    expect(envelope.workspaceID).toBe(WORKBENCH_WORKSPACE_ID);
+    expect(envelope.records[0].payload).toBe("cGF5bG9hZA==");
+  });
+
+  it("accepts and canonically re-encodes the native tombstone and asset fixture", () => {
+    const envelope = JSON.parse(tombstoneAssetsEnvelope);
+    expect(() => validateEnvelope(envelope)).not.toThrow();
+    expect(canonicalJSON(envelope)).toBe(tombstoneAssetsEnvelope);
+    expect(envelope.records[0].isTombstone).toBe(true);
+    expect(() => validateAsset(envelope.assets[0])).not.toThrow();
+  });
+
+  it("derives mutation IDs exactly like SyncRecord::mutation_id without putting them on the wire", () => {
+    const record = JSON.parse(protocolEnvelope).records[0] as SyncableRecord;
+    expect(recordMutationID(record)).toBe("project:11111111-1111-1111-1111-111111111111:7:AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA");
+    expect(record).not.toHaveProperty("mutationID");
+  });
+});
+
+describe("canonical encoding", () => {
+  it("sorts nested and integer-like keys like Rust BTreeMap and escapes slashes", () => {
+    expect(canonicalJSON({ "2": "two", "10": "ten", path: "photos/a.png" }))
+      .toBe('{"10":"ten","2":"two","path":"photos\\/a.png"}');
+    expect(canonicalJSON({ "\uE000": 1, "𐀀": 2 })).toBe('{"":1,"𐀀":2}');
+  });
+
+  it("preserves unknown fields when parsing and re-encoding records", () => {
+    const record = { ...JSON.parse(protocolEnvelope).records[0], futureField: { nested: true } };
+    expect(canonicalJSON(JSON.parse(canonicalJSON(record)))).toBe(canonicalJSON(record));
+    expect(JSON.parse(canonicalJSON(record)).futureField).toEqual({ nested: true });
+  });
+});
+
+describe("revision and merge behavior", () => {
+  it("orders revisions by counter then origin device ID", () => {
+    const a = makeRevision(1, FIXTURE_DEVICE_A);
+    const b = makeRevision(2, FIXTURE_DEVICE_A);
+    const c = makeRevision(1, FIXTURE_DEVICE_B);
     expect(revisionGreater(b, a)).toBe(true);
     expect(revisionGreater(a, b)).toBe(false);
-    expect(revisionGreater(c, a)).toBe(true); // same counter, greater device id
+    expect(revisionGreater(c, a)).toBe(true);
     expect(revisionsEqual(makeRevision(3, "x"), makeRevision(3, "x"))).toBe(true);
   });
-});
 
-describe("mutation id idempotency", () => {
-  it("is stable across re-serialization and platforms", () => {
-    const r = sampleIdea;
-    expect(recordMutationID(r)).toBe(`idea:${r.id}:1:${FIXTURE_DEVICE_A}`);
-    // Re-parsing canonical JSON yields the same id.
-    const roundTripped = JSON.parse(canonicalJSON(r));
-    expect(recordMutationID(roundTripped)).toBe(recordMutationID(r));
-  });
-});
-
-describe("canonical JSON", () => {
-  it("sorts keys deterministically regardless of insertion order", () => {
-    const a = canonicalJSON({ b: 1, a: 2, c: { d: 4, e: 3 } });
-    const b = canonicalJSON({ c: { e: 3, d: 4 }, a: 2, b: 1 });
-    expect(a).toBe(b);
-    expect(JSON.parse(a)).toEqual({ a: 2, b: 1, c: { d: 4, e: 3 } });
-  });
-});
-
-describe("record hashing", () => {
-  it("produces identical hashes for equal records across platforms", async () => {
-    const h1 = await hashRecord(sampleProject);
-    const roundTripped = JSON.parse(canonicalJSON(sampleProject));
-    const h2 = await hashRecord(roundTripped);
-    expect(h2).toBe(h1);
-    // Different payload -> different hash.
-    const other = makeRecord(EntityKind.Project, {
-      id: sampleProject.id,
-      title: "Different",
-      notes: sampleProject.payload.notes,
-      createdAt: sampleProject.modifiedAt,
-      updatedAt: sampleProject.modifiedAt,
-    });
-    const h3 = await hashRecord(other);
-    expect(h3).not.toBe(h1);
-  });
-
-  it("exposes a stable hex digest length", async () => {
-    const h = await hashRecord(sampleIdea);
-    expect(h).toMatch(/^[0-9a-f]{64}$/);
-  });
-});
-
-describe("record validation", () => {
-  it("accepts well-formed records", () => {
-    expect(() => validateRecord(sampleTask)).not.toThrow();
-  });
-
-  it("rejects malformed records", () => {
-    expect(() => validateRecord({})).toThrow(/missing field/);
-    expect(() => validateRecord({ ...sampleIdea, entityKind: "bogus" })).toThrow(/invalid entityKind/);
-    expect(() => validateRecord({ ...sampleIdea, schemaVersion: 0 })).toThrow(/schemaVersion/);
-    expect(() => validateRecord("nope")).toThrow();
-  });
-});
-
-describe("entity kind capabilities", () => {
-  it("excludes AI-only kinds from sync", () => {
-    for (const k of [EntityKind.Analysis, EntityKind.BrainstormTurn, EntityKind.TrainingRun, EntityKind.Adapter]) {
-      expect(AI_ONLY_KINDS.has(k)).toBe(true);
+  it("uses the Rust conflict-preservation kind set", () => {
+    for (const kind of [EntityKind.Idea, EntityKind.Project, EntityKind.VoiceMemo, EntityKind.BoardItem, EntityKind.WikiPage, EntityKind.BrainstormTurn]) {
+      expect(preservesConcurrentTextEdits(kind)).toBe(true);
     }
-    // All fixture kinds are syncable.
-    for (const r of [sampleProject, sampleIdea, sampleTask, sampleNote, sampleBoardItem, sampleVoiceMemo, sampleWikiPage]) {
-      expect(AI_ONLY_KINDS.has(r.entityKind)).toBe(false);
-    }
+    expect(preservesConcurrentTextEdits(EntityKind.Note)).toBe(false);
+    expect(AI_ONLY_KINDS.has(EntityKind.Analysis)).toBe(true);
   });
 
-  it("flags text-bearing kinds for conflict copies", () => {
-    expect(preservesConcurrentTextEdits(EntityKind.Idea)).toBe(true);
-    expect(preservesConcurrentTextEdits(EntityKind.Note)).toBe(true);
-    expect(preservesConcurrentTextEdits(EntityKind.BoardItem)).toBe(true);
-    expect(preservesConcurrentTextEdits(EntityKind.VoiceMemo)).toBe(false);
-  });
-});
-
-describe("merge decisions", () => {
-  it("accepts remote when there is no local record", () => {
-    expect(mergeDecision(undefined, sampleIdea)).toBe(MergeDecision.acceptRemote);
-  });
-
-  it("keeps local on idempotent replay (same mutation id)", () => {
-    const local = makeRecord(EntityKind.Idea, { id: "idea-x", content: "local edit" }, 5, FIXTURE_DEVICE_A);
-    const remote = { ...local, payload: { id: "idea-x", content: "remote variant" }, modifiedAt: "2026-01-02T00:00:00.000Z" };
-    expect(mergeDecision(local, remote)).toBe(MergeDecision.keepLocal);
-  });
-
-  it("preserves conflict for concurrent text edits to the same revision", () => {
-    const local = makeRecord(EntityKind.Idea, { id: "idea-x", content: "local edit" }, 5, FIXTURE_DEVICE_A);
-    const remote = makeRecord(EntityKind.Idea, { id: "idea-x", content: "remote edit" }, 5, FIXTURE_DEVICE_B);
+  it("preserves equal-counter concurrent text changes and keeps non-text ties", () => {
+    const local = makeRecord(EntityKind.Idea, { text: "local" }, 5, FIXTURE_DEVICE_A);
+    const remote: SyncableRecord = { ...makeRecord(EntityKind.Idea, { text: "remote" }, 5, FIXTURE_DEVICE_B), modifiedAt: "1970-01-01T00:00:01Z" };
     expect(mergeDecision(local, remote)).toBe(MergeDecision.preserveConflict);
+
+    const localMemo = makeRecord(EntityKind.VoiceMemo, { title: "same" }, 5, FIXTURE_DEVICE_A);
+    const remoteMemo = { ...localMemo, revision: makeRevision(5, FIXTURE_DEVICE_B), payload: encodePayload({ title: "different" }) };
+    expect(mergeDecision(localMemo, remoteMemo)).toBe(MergeDecision.preserveConflict);
+
+    const localNote = makeRecord(EntityKind.Note, { body: "local" }, 5, FIXTURE_DEVICE_A);
+    const remoteNote = { ...localNote, revision: makeRevision(5, FIXTURE_DEVICE_B), payload: encodePayload({ body: "remote" }) };
+    expect(mergeDecision(localNote, remoteNote)).toBe(MergeDecision.keepLocal);
   });
 
-  it("accepts remote when causally contained", () => {
-    const local = makeRecord(EntityKind.Note, { id: "n1", body: "a" }, 3, FIXTURE_DEVICE_A);
-    const remote = makeRecord(EntityKind.Note, { id: "n1", body: "b" }, 4, FIXTURE_DEVICE_B);
-    // remote carries causal history showing it contains local's change.
-    remote.causalHistory = { [FIXTURE_DEVICE_A]: 3 };
-    expect(mergeDecision(local, remote)).toBe(MergeDecision.acceptRemote);
-  });
-
-  it("keeps local when the revision is strictly greater", () => {
-    const local = makeRecord(EntityKind.Note, { id: "n1", body: "local" }, 7, FIXTURE_DEVICE_A);
-    const remote = makeRecord(EntityKind.Note, { id: "n1", body: "remote" }, 6, FIXTURE_DEVICE_B);
+  it("keeps local when its causal history already observes the remote mutation", () => {
+    const remote = makeRecord(EntityKind.Project, { title: "remote" }, 3, FIXTURE_DEVICE_B);
+    const local: SyncableRecord = { ...makeRecord(EntityKind.Project, { title: "local" }, 4, FIXTURE_DEVICE_A), causalHistory: { [FIXTURE_DEVICE_B]: 3 } };
     expect(mergeDecision(local, remote)).toBe(MergeDecision.keepLocal);
   });
 
-  it("does not preserve conflict for non-text kinds (overwrites)", () => {
-    const local = makeRecord(EntityKind.VoiceMemo, { id: "v1", title: "a" }, 5, FIXTURE_DEVICE_A);
-    const remote = makeRecord(EntityKind.VoiceMemo, { id: "v1", title: "b" }, 5, FIXTURE_DEVICE_B);
-    // Equal revision + differing payload on a non-text kind resolves to keepLocal, never preserveConflict.
-    expect(mergeDecision(local, remote)).toBe(MergeDecision.keepLocal);
-    expect(mergeDecision(remote, local)).not.toBe(MergeDecision.preserveConflict);
+  it("hashes canonical record bytes and derives stable retry IDs", async () => {
+    const record = makeRecord(EntityKind.Project, { title: "Roadmap" });
+    expect(await hashRecord(record)).toMatch(/^[0-9a-f]{64}$/);
+    expect(recordMutationID(JSON.parse(canonicalJSON(record)))).toBe(recordMutationID(record));
   });
 });
 
-describe("asset manifests", () => {
-  const manifest = {
-    id: "asset-1",
-    ownerRecordID: sampleProject.id,
-    contentHash: "abc123",
-    byteCount: 2048,
-    mediaType: "image/png",
-    logicalPath: "projects/proj-1/photos/photo.png",
-    chunkSize: 1024,
-    chunkHashes: ["h1", "h2"],
-  };
-
-  it("validates well-formed manifests", () => {
-    expect(() => validateAsset(manifest)).not.toThrow();
+describe("wire validation and cursors", () => {
+  it("accepts a valid record and rejects malformed records and non-base64 payload shapes", () => {
+    const record = JSON.parse(protocolEnvelope).records[0];
+    expect(() => validateRecord(record)).not.toThrow();
+    expect(() => validateRecord({ ...record, payload: {} })).toThrow(/base64/);
+    expect(() => validateRecord({ ...record, revision: { counter: -1, originDeviceID: FIXTURE_DEVICE_A } })).toThrow(/revision/);
   });
 
-  it("rejects malformed manifests", () => {
-    expect(() => validateAsset({ ...manifest, byteCount: -1 })).toThrow(/byteCount/);
-    expect(() => validateAsset({ ...manifest, chunkSize: 0 })).toThrow(/chunkSize/);
-    expect(() => validateAsset("nope")).toThrow();
+  it("requires the protocol workspace identity and valid sequence range", () => {
+    const envelope: ChangeEnvelope = JSON.parse(protocolEnvelope);
+    expect(() => validateEnvelope(envelope)).not.toThrow();
+    expect(() => validateEnvelope({ ...envelope, protocolVersion: CURRENT_PROTOCOL_VERSION + 1 })).toThrow(/protocolVersion/);
+    expect(() => validateEnvelope({ ...envelope, workspaceID: "other" })).toThrow(/workspace identity/);
+    expect(() => validateEnvelope({ ...envelope, sequenceStart: 8, sequenceEnd: 7 })).toThrow(/sequenceEnd before/);
+    expect(FIXTURE_WORKSPACE_ID).toBe(WORKBENCH_WORKSPACE_ID);
   });
 
-  it("computes a stable manifest hash", async () => {
-    const h = await import("../src/asset.js").then((m) => m.hashAssetManifest(manifest));
-    expect(h).toMatch(/^[0-9a-f]{64}$/);
-  });
-});
-
-describe("envelope validation", () => {
-  it("accepts a current-protocol envelope", () => {
-    const env = {
-      protocolVersion: CURRENT_PROTOCOL_VERSION,
-      workspaceID: FIXTURE_WORKSPACE_ID,
-      senderDeviceID: FIXTURE_DEVICE_A,
-      sequenceStart: 1,
-      sequenceEnd: 5,
-      records: [sampleIdea],
-      assets: [],
-      createdAt: "2026-01-01T00:00:00.000Z",
-    };
-    expect(() => validateEnvelope(env)).not.toThrow();
-  });
-
-  it("rejects an outdated protocol version", () => {
-    const env = { ...aboveEnv(), protocolVersion: CURRENT_PROTOCOL_VERSION - 1 };
-    expect(() => validateEnvelope(env)).toThrow(/protocolVersion/);
-  });
-
-  it("rejects a reversed sequence range", () => {
-    const env = aboveEnv();
-    env.sequenceStart = 5;
-    env.sequenceEnd = 1;
-    expect(() => validateEnvelope(env)).toThrow(/sequenceEnd before/);
-  });
-});
-
-function aboveEnv(): any {
-  return {
-    protocolVersion: CURRENT_PROTOCOL_VERSION,
-    workspaceID: FIXTURE_WORKSPACE_ID,
-    senderDeviceID: FIXTURE_DEVICE_A,
-    sequenceStart: 1,
-    sequenceEnd: 5,
-    records: [sampleIdea],
-    assets: [],
-    createdAt: "2026-01-01T00:00:00.000Z",
-  };
-}
-
-describe("cursor helpers", () => {
-  it("reports strictly-greater sequences", () => {
-    const cursor = { workspaceID: FIXTURE_WORKSPACE_ID, sequence: 3 };
-    expect(after(cursor, 4)).toBe(true);
-    expect(after(cursor, 3)).toBe(false);
+  it("reports sequences strictly after a cursor", () => {
+    const cursor = { workspaceID: FIXTURE_WORKSPACE_ID, sequence: 7 };
+    expect(after(cursor, 8)).toBe(true);
+    expect(after(cursor, 7)).toBe(false);
   });
 });

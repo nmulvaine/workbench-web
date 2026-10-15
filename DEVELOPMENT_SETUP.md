@@ -2,23 +2,21 @@
 
 ## Prerequisites
 
-- Node.js LTS and a package manager.
-- Cloudflare account with Pages, Workers, D1, R2, Durable Objects, and Queues enabled.
-- Wrangler authenticated with a development account.
-- Apple and Google OAuth application credentials.
-- WebAuthn/passkey domain configuration.
+- Node.js 22.19 or newer and npm.
+- Wrangler for local Cloudflare Worker preview.
+- A Cloudflare account is only needed for deployment; no production deployment is part of local setup.
 
 ## Initial setup
 
-1. Copy `.env.example` to `.env.local`.
-2. Install dependencies after the package manager and framework are selected.
-3. Create local D1, R2, Durable Object, and Queue bindings through Wrangler.
-4. Apply migrations locally.
-5. Run the web client and Workers locally together.
-6. Exercise offline editing and sync against local Cloudflare emulation before using a remote environment.
+1. Run `npm ci`.
+2. Run `npm run dev` for the Astro client.
+3. Run `npm run preview` to build the Astro Worker and preview it with Wrangler.
+4. Run `npm run check` before proposing a change.
 
-Never commit OAuth secrets, private keys, tokens, or production bindings.
+The sync API under `workers/api` deliberately returns `503 sync_unavailable`; it is not connected to the Astro deployment. Its Wrangler configuration and SQL schema are drafts, not provisioned Cloudflare resources. Do not deploy the API until authentication, authorization, transactional storage, and environment bindings are implemented and reviewed.
+
+Never commit OAuth secrets, private keys, tokens, or production bindings. Do not put production IDs or secrets in the checked-in Wrangler files.
 
 ## Validation gates
 
-Run contract tests first, then API/storage integration tests, browser offline tests, and finally physical cross-platform convergence tests. Do not enable automatic sync based only on builds or fixtures.
+Run contract and API guard tests, type checks, Astro build, and Wrangler dry-run with `npm run check`. This proves the starter shell builds and that the sync endpoint remains disabled; it does not prove persistence or cross-platform sync. Add D1/R2 local adapter, browser outbox, and physical platform acceptance tests before enabling sync.
