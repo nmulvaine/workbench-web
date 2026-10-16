@@ -81,9 +81,10 @@ describe("commitEnvelope tombstones and summaries", () => {
     const tombstone = mk(EntityKind.Idea, "idea-1", 5, "dev-a", true);
     const result = await commitEnvelope({ deviceId: "dev-a", revoked: false }, 1, [tombstone], []);
     expect(result.tombstones).toBe(1);
-    expect(tombstonesRetained([mutation(tombstone)], [])).toBe(1);
-    expect(tombstonesRetained([mutation(tombstone)], [{ peerID: "dev-a", sequence: 5, timestamp: "1970-01-01T00:00:00Z" }])).toBe(1);
-    expect(tombstonesRetained([mutation(tombstone)], [{ peerID: "dev-b", sequence: 5, timestamp: "1970-01-01T00:00:00Z" }])).toBe(0);
+    expect(tombstonesRetained([mutation(tombstone)], [], ["dev-a", "dev-b"])).toBe(1);
+    expect(tombstonesRetained([mutation(tombstone)], [{ peerID: "dev-a", sequence: 5, timestamp: "1970-01-01T00:00:00Z" }], ["dev-a", "dev-b"])).toBe(1);
+    expect(tombstonesRetained([mutation(tombstone)], [{ peerID: "dev-b", sequence: 4, timestamp: "1970-01-01T00:00:00Z" }], ["dev-a", "dev-b"])).toBe(1);
+    expect(tombstonesRetained([mutation(tombstone)], [{ peerID: "dev-b", sequence: 5, timestamp: "1970-01-01T00:00:00Z" }], ["dev-a", "dev-b"])).toBe(0);
   });
 
   it("produces a compact commit summary", async () => {

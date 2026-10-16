@@ -17,7 +17,7 @@ export const CURRENT_PROTOCOL_VERSION = 1 as const;
 export const CURRENT_SCHEMA_VERSION = 3 as const;
 
 /**
- * Entity kinds that participate in sync. AI-only kinds (analysis, brainstormTurn,
+ * Entity kinds that participate in sync. AI-only kinds (analysis,
  * training*, checkpoint, adapter, evaluation, hat) are intentionally excluded here
  * and remain capability-gated / local only on every platform.
  */
@@ -46,7 +46,7 @@ export enum EntityKind {
 
   // AI-only kinds (never sync; capability-gated, local only).
   Analysis = "analysis",
-  BrainstormTurn = "brainstormTurn",
+  BrainstormTurn = "brainstormTurn", // user-visible turns; text conflict behavior matches native protocol
   TrainingDataset = "trainingDataset",
   TrainingExample = "trainingExample",
   TrainingRun = "trainingRun",
@@ -59,7 +59,6 @@ export enum EntityKind {
 /** Kinds for which concurrent text edits are preserved as conflict copies rather than overwritten. */
 export const AI_ONLY_KINDS: ReadonlySet<EntityKind> = new Set([
   EntityKind.Analysis,
-  EntityKind.BrainstormTurn,
   EntityKind.TrainingDataset,
   EntityKind.TrainingExample,
   EntityKind.TrainingRun,
@@ -67,6 +66,16 @@ export const AI_ONLY_KINDS: ReadonlySet<EntityKind> = new Set([
   EntityKind.Adapter,
   EntityKind.Evaluation,
   EntityKind.Hat,
+]);
+
+/**
+ * Kinds with concrete identity and payload projections in the current native
+ * workspace adapters. Keep new web writes inside this set until Android/iOS/macOS
+ * projections and shared fixtures define their field mapping.
+ */
+export const NATIVE_SYNCABLE_KINDS: ReadonlySet<string> = new Set([
+  "project", "idea", "brainstormTurn", "task", "boardItem", "noteInk", "canvas", "canvasLayer", "canvasStroke",
+  "photo", "imageAnnotation", "inkTranscript", "voiceMemo", "wikiNotebook", "wikiPage", "wikiPageLink", "wikiSource", "sourceChunk", "citation",
 ]);
 
 export const TEXT_BEARING_KINDS: ReadonlySet<EntityKind> = new Set([
@@ -85,6 +94,5 @@ export function preservesConcurrentTextEdits(kind: string): boolean {
 
 /** Whether a kind is allowed to sync at all (excludes AI-only kinds). */
 export function isSyncableKind(kind: string): boolean {
-  if (!Object.values(EntityKind).includes(kind as EntityKind)) return false;
-  return !AI_ONLY_KINDS.has(kind as EntityKind);
+  return NATIVE_SYNCABLE_KINDS.has(kind) && !AI_ONLY_KINDS.has(kind as EntityKind);
 }

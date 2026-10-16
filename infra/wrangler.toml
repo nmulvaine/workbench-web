@@ -1,5 +1,5 @@
 name = "workbench-sync-api"
-main = "workers/api/src/index.ts"
+main = "../workers/api/src/index.ts"
 compatibility_date = "2025-10-08"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = false
@@ -7,3 +7,34 @@ workers_dev = false
 # Intentionally no D1, R2, or production routes are bound until the API is ready.
 [vars]
 SYNC_ENABLED = "false"
+MAX_SYNC_BODY_BYTES = "1048576"
+MAX_ASSET_BYTES = "67108864"
+MAX_SNAPSHOT_BYTES = "67108864"
+
+[env.local]
+name = "workbench-sync-api-local"
+workers_dev = true
+[env.local.vars]
+SYNC_ENABLED = "false"
+ALLOWED_ORIGINS = "http://localhost:4321,http://127.0.0.1:4321"
+MAX_SYNC_BODY_BYTES = "1048576"
+MAX_ASSET_BYTES = "67108864"
+MAX_SNAPSHOT_BYTES = "67108864"
+
+[env.staging]
+name = "workbench-sync-api-staging"
+workers_dev = true
+[env.staging.vars]
+SYNC_ENABLED = "false"
+MAX_SYNC_BODY_BYTES = "1048576"
+MAX_ASSET_BYTES = "67108864"
+MAX_SNAPSHOT_BYTES = "67108864"
+
+[env.production]
+name = "workbench-sync-api-production"
+workers_dev = false
+[env.production.vars]
+SYNC_ENABLED = "false"
+MAX_SYNC_BODY_BYTES = "1048576"
+MAX_ASSET_BYTES = "67108864"
+MAX_SNAPSHOT_BYTES = "67108864"

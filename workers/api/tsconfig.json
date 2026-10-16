@@ -10,5 +10,5 @@
     "declaration": true,
     "outDir": "dist"
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "../../worker-configuration.d.ts"]
 }

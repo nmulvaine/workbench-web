@@ -63,7 +63,12 @@ function compareUnicodeScalars(left: string, right: string): number {
 /** SHA-256 hex digest of canonical UTF-8 text. */
 export async function sha256Hex(input: string): Promise<string> {
   const data = new TextEncoder().encode(input);
-  const hash = await crypto.subtle.digest("SHA-256", data);
+  return sha256BytesHex(data);
+}
+
+/** SHA-256 hex digest of exact binary bytes. */
+export async function sha256BytesHex(data: Uint8Array): Promise<string> {
+  const hash = await crypto.subtle.digest("SHA-256", Uint8Array.from(data).buffer as ArrayBuffer);
   return Array.from(new Uint8Array(hash)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 

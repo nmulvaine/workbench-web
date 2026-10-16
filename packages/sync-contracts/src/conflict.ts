@@ -47,21 +47,21 @@ export function mergeDecision(
     return MergeDecision.keepLocal;
   }
 
-  // Both sides carry causal history and differ -> conflict.
-  if (Object.keys(localCausal).length > 0 || Object.keys(remoteCausal).length > 0) {
+  // The Rust representation distinguishes a present empty causalHistory map
+  // from a legacy record with no causalHistory field at all.
+  if (Object.hasOwn(local, "causalHistory") || Object.hasOwn(remote, "causalHistory")) {
     if (local.revision.originDeviceID !== remote.revision.originDeviceID &&
         (local.payload !== remote.payload || local.isTombstone !== remote.isTombstone)) {
       return MergeDecision.preserveConflict;
     }
   }
 
-  // Same counter from independent devices is concurrent, even when the kind
-  // does not create a text conflict copy. Preserve native tie behavior below.
+  // At the same counter, native preserves concurrent text kinds. Other kinds
+  // fall through to the full (counter, origin UUID) revision ordering below.
   if (remote.revision.counter === local.revision.counter &&
       remote.revision.originDeviceID !== local.revision.originDeviceID &&
       remote.payload !== local.payload) {
     if (preservesConcurrentTextEdits(remote.entityKind)) return MergeDecision.preserveConflict;
-    return MergeDecision.keepLocal;
   }
 
   // Fall back to revision ordering, then last-modified timestamp.

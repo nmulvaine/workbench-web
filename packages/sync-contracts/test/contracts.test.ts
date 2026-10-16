@@ -15,6 +15,7 @@ import {
   recordMutationID,
   revisionGreater,
   revisionsEqual,
+  isSyncableKind,
   validateAsset,
   validateEnvelope,
   validateRecord,
@@ -81,6 +82,8 @@ describe("revision and merge behavior", () => {
     }
     expect(preservesConcurrentTextEdits(EntityKind.Note)).toBe(false);
     expect(AI_ONLY_KINDS.has(EntityKind.Analysis)).toBe(true);
+    expect(isSyncableKind(EntityKind.BrainstormTurn)).toBe(true);
+    expect(isSyncableKind(EntityKind.Analysis)).toBe(false);
   });
 
   it("preserves equal-counter concurrent text changes and keeps non-text ties", () => {
@@ -94,13 +97,20 @@ describe("revision and merge behavior", () => {
 
     const localNote = makeRecord(EntityKind.Note, { body: "local" }, 5, FIXTURE_DEVICE_A);
     const remoteNote = { ...localNote, revision: makeRevision(5, FIXTURE_DEVICE_B), payload: encodePayload({ body: "remote" }) };
-    expect(mergeDecision(localNote, remoteNote)).toBe(MergeDecision.keepLocal);
+    expect(mergeDecision(localNote, remoteNote)).toBe(MergeDecision.acceptRemote);
   });
 
   it("keeps local when its causal history already observes the remote mutation", () => {
     const remote = makeRecord(EntityKind.Project, { title: "remote" }, 3, FIXTURE_DEVICE_B);
     const local: SyncableRecord = { ...makeRecord(EntityKind.Project, { title: "local" }, 4, FIXTURE_DEVICE_A), causalHistory: { [FIXTURE_DEVICE_B]: 3 } };
     expect(mergeDecision(local, remote)).toBe(MergeDecision.keepLocal);
+  });
+
+  it("preserves unequal-counter edits and delete/edit pairs when native records carry causalHistory", () => {
+    const local = { ...makeRecord(EntityKind.Project, { strings: { title: "local" } }, 2, FIXTURE_DEVICE_A), causalHistory: {} };
+    const remote = { ...makeRecord(EntityKind.Project, { strings: { title: "remote" } }, 9, FIXTURE_DEVICE_B), causalHistory: {} };
+    expect(mergeDecision(local, remote)).toBe(MergeDecision.preserveConflict);
+    expect(mergeDecision(local, { ...remote, isTombstone: true })).toBe(MergeDecision.preserveConflict);
   });
 
   it("hashes canonical record bytes and derives stable retry IDs", async () => {

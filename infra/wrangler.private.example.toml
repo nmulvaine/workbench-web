@@ -1,0 +1,81 @@
+# Copy to infra/wrangler.private.toml and replace each D1 ID before API deploy.
+# The private file is gitignored so account resource IDs are not committed.
+name = "workbench-sync-api"
+main = "../workers/api/src/index.ts"
+compatibility_date = "2025-10-08"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+
+[vars]
+SYNC_ENABLED = "false"
+MAX_SYNC_BODY_BYTES = "1048576"
+MAX_ASSET_BYTES = "67108864"
+MAX_SNAPSHOT_BYTES = "67108864"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "workbench-sync-local"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "workbench-sync-local"
+
+[env.local]
+name = "workbench-sync-api-local"
+workers_dev = true
+[[env.local.d1_databases]]
+binding = "DB"
+database_name = "workbench-sync-local"
+database_id = "00000000-0000-0000-0000-000000000000"
+[[env.local.r2_buckets]]
+binding = "ASSETS"
+bucket_name = "workbench-sync-local"
+[env.local.vars]
+SYNC_ENABLED = "false"
+MAX_SYNC_BODY_BYTES = "1048576"
+MAX_ASSET_BYTES = "67108864"
+MAX_SNAPSHOT_BYTES = "67108864"
+
+[env.staging]
+name = "workbench-sync-api-staging"
+workers_dev = true
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "workbench-sync-staging"
+database_id = "REPLACE_WITH_STAGING_D1_ID"
+[[env.staging.r2_buckets]]
+binding = "ASSETS"
+bucket_name = "workbench-sync-staging"
+[env.staging.vars]
+SYNC_ENABLED = "false"
+ALLOWED_ORIGINS = "https://YOUR_WORKBENCH_HOSTNAME"
+AUTH_REDIRECT_URIS = "https://YOUR_WORKBENCH_HOSTNAME/,com.workbench.app://oauth2redirect"
+# After creating an Access OIDC SaaS application, configure these non-secret
+# values from its Issuer, client ID, authorization URL, token URL, and JWKS URL.
+# AUTH_CLIENT_SECRET must be added with `wrangler secret put`, never here.
+# AUTH_ISSUER = "https://YOUR_TEAM.cloudflareaccess.com/cdn-cgi/access/sso/oidc/YOUR_CLIENT_ID"
+# AUTH_AUDIENCE = "YOUR_CLIENT_ID"
+# AUTH_JWKS_URL = "https://YOUR_TEAM.cloudflareaccess.com/cdn-cgi/access/sso/oidc/YOUR_CLIENT_ID/jwks"
+# AUTH_CLIENT_ID = "YOUR_CLIENT_ID"
+# AUTH_AUTHORIZATION_URL = "https://YOUR_TEAM.cloudflareaccess.com/cdn-cgi/access/sso/oidc/YOUR_CLIENT_ID/authorization"
+# AUTH_TOKEN_URL = "https://YOUR_TEAM.cloudflareaccess.com/cdn-cgi/access/sso/oidc/YOUR_CLIENT_ID/token"
+MAX_SYNC_BODY_BYTES = "1048576"
+MAX_ASSET_BYTES = "67108864"
+MAX_SNAPSHOT_BYTES = "67108864"
+
+[env.production]
+name = "workbench-sync-api-production"
+workers_dev = false
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "workbench-sync-production"
+database_id = "REPLACE_WITH_PRODUCTION_D1_ID"
+[[env.production.r2_buckets]]
+binding = "ASSETS"
+bucket_name = "workbench-sync-production"
+[env.production.vars]
+SYNC_ENABLED = "false"
+MAX_SYNC_BODY_BYTES = "1048576"
+MAX_ASSET_BYTES = "67108864"
+MAX_SNAPSHOT_BYTES = "67108864"

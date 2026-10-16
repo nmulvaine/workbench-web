@@ -4,20 +4,22 @@ Workbench Web is the Astro and Cloudflare foundation for a browser version of Wo
 
 ## Current status
 
-The Astro client is still the upstream starter shell. The Workbench sync contracts and API are early scaffolding and are not production-ready: authentication, persistence, authorization, asset transfer, and client integration remain incomplete. Do not enable production sync or describe the deployed starter page as the Workbench application.
+The browser shell creates Projects and Thoughts in IndexedDB, keeps a durable outbox, and provides manual Cloudflare connection/sync controls. The sync API has verified OIDC token handling, account-scoped D1 mutation/cursor code, conflict history, device registration/revocation, snapshots, and resumable R2 asset routes. A disabled staging Worker and its D1 schema are deployed; R2 and OIDC settings are still pending, so `SYNC_ENABLED` remains `false`. Android's Cloudflare adapter is an initial project/record implementation and still needs full Android↔page acceptance before automatic sync is enabled. See [Development setup](DEVELOPMENT_SETUP.md) and [Cloudflare environments](CLOUDFLARE_ENVIRONMENTS.md).
 
 ## Repository layout
 
 - `src/` — Astro web application.
 - `packages/sync-contracts/` — platform-neutral Workbench Sync Protocol contracts and fixtures.
+- `packages/storage/` — browser IndexedDB records and transactional durable outbox.
 - `workers/api/` — Cloudflare Worker API scaffold.
-- `infra/` — sync service Wrangler configuration and D1 schema draft.
+- `infra/` — sync Worker configuration and account-scoped D1 migration.
 
 ## Documentation
 
 - [Architecture](ARCHITECTURE.md)
 - [Sync protocol integration](SYNC_PROTOCOL.md)
 - [Cloudflare project plan](CLOUDFLARE_WORKBENCH_plan.prompt.md)
+- [Cloudflare environments](CLOUDFLARE_ENVIRONMENTS.md)
 - [Development setup](DEVELOPMENT_SETUP.md)
 
 ## Development
@@ -30,6 +32,6 @@ npm run dev
 npm run check
 ```
 
-`npm run check` runs the contract and API tests, TypeScript checks, Astro production build, and Wrangler dry-run. `npm run preview` builds and runs the Cloudflare Worker locally. Production deployment is intentionally a separate command (`npm run deploy`).
+`npm run check` runs contract/API tests, TypeScript checks, Astro production build, and Wrangler dry-run. `npm run preview` builds and runs the Astro Worker locally. The sync Worker has a separate configuration and is disabled by default. Production deployment is intentionally a separate command (`npm run deploy`).
 
 Never commit credentials or production binding values. See [Development setup](DEVELOPMENT_SETUP.md) before configuring Cloudflare resources.

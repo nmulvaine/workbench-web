@@ -162,10 +162,14 @@ export async function commitEnvelope(
 export function tombstonesRetained(
   tombstones: Mutation[],
   acknowledgements: Acknowledgement[],
+  trustedPeerIDs: string[],
 ): number {
   let retained = 0;
   for (const t of tombstones) {
-    const covered = acknowledgements.some((a) => a.peerID !== t.record.revision.originDeviceID);
+    const peers = trustedPeerIDs.filter((peerID) => peerID !== t.record.revision.originDeviceID);
+    const covered = peers.length > 0 && peers.every((peerID) =>
+      acknowledgements.some((ack) => ack.peerID === peerID && ack.sequence >= t.sequence),
+    );
     if (!covered) retained += 1;
   }
   return retained;

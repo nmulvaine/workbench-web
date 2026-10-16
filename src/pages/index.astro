@@ -53,19 +53,93 @@ import { SITE_DESCRIPTION, SITE_TITLE } from '../consts';
 					</section>
 
 					<section class="view-panel feature-view" id="view-feature" data-panel="feature" hidden>
-						<p class="eyebrow" id="feature-eyebrow">WORKSPACE</p><div class="feature-view-heading"><div><h1 id="feature-heading">Projects</h1><p class="subheading" id="feature-description"></p></div><button class="disabled-action" type="button" disabled aria-disabled="true">＋ Create</button></div>
-						<div class="status-banner compact"><span class="status-icon" aria-hidden="true">◷</span><div><strong>This workspace area is being connected</strong><p>The local-first data model and editing flow are still in development. No sample content is shown as if it were your data.</p></div></div>
-						<div class="panel feature-empty"><span class="empty-icon">✧</span><strong id="feature-empty-title">Nothing here yet</strong><p>When this area is ready, your real workspace content will appear here.</p></div>
+						<p class="eyebrow" id="feature-eyebrow">WORKSPACE</p><div class="feature-view-heading"><div><h1 id="feature-heading">Projects</h1><p class="subheading" id="feature-description"></p></div><button class="create-action" id="create-button" type="button" hidden>＋ Create</button></div>
+						<div class="status-banner compact"><span class="status-icon">⌂</span><div><strong>Saved on this browser</strong><p>Project and thought edits are stored locally with a durable sync outbox. They are not uploaded while sync is disabled.</p></div><span class="status-tag">LOCAL ONLY</span></div>
+						<form id="local-create-form" class="panel local-form" hidden>
+							<label for="local-title">Title</label><input id="local-title" name="title" maxlength="160" required autocomplete="off" />
+							<label for="local-body">Description</label><textarea id="local-body" name="body" rows="4" maxlength="10000"></textarea>
+							<div class="form-actions"><span id="save-status" role="status" aria-live="polite"></span><button type="submit">Save on this browser</button></div>
+						</form>
+						<section id="cloud-sync-settings" class="panel local-form" hidden aria-labelledby="cloud-sync-title">
+							<h2 id="cloud-sync-title">Cloudflare project sync</h2>
+							<p>Sign in with Cloudflare Access. Your short-lived ID token stays in this browser tab and is cleared when you disconnect.</p>
+							<label for="sync-endpoint">Sync API URL</label><input id="sync-endpoint" type="url" autocomplete="url" />
+							<div class="form-actions"><span id="cloud-sync-status" role="status" aria-live="polite">Not connected</span><span><button id="cloud-connect" type="button">Sign in with Cloudflare Access</button> <button id="cloud-sync-now" type="button" disabled>Sync Now</button> <button id="cloud-disconnect" type="button" class="secondary-action" hidden>Disconnect</button></span></div>
+						</section>
+						<div id="local-record-list" class="local-record-list" aria-live="polite"></div>
+						<div class="panel feature-empty" id="feature-empty"><span class="empty-icon">✧</span><strong id="feature-empty-title">Nothing here yet</strong><p>Start on this browser. Other feature areas will connect in later slices.</p></div>
 					</section>
 				</div>
 				<footer class="app-footer"><span>Workbench</span><span>Local-first workspace</span></footer>
 			</main>
 		</div>
 		<script>
+							import { decodePayload, getInstallationDeviceID, listLocalRecords, listOutbox, moveLocalScope, saveLocalRecord } from '../../packages/storage/src/indexeddb';
+							import { syncWorkspace } from '../../packages/storage/src/api-client';
+			import { WORKBENCH_WORKSPACE_ID } from '../../packages/sync-contracts/src/envelope';
 			const labels = { overview: ['Overview', '', ''], projects: ['Projects', 'Organize work into focused spaces.', 'No projects yet'], thoughts: ['Thoughts', 'Capture ideas and turn them into meaningful work.', 'No thoughts yet'], tasks: ['Tasks', 'Keep the next steps in sight.', 'No tasks yet'], notes: ['Notes', 'Keep working notes alongside your projects.', 'No notes yet'], canvas: ['Canvas', 'Think visually with boards, drawings, and media.', 'No canvases yet'], wiki: ['Wiki', 'Build a connected library of knowledge.', 'No pages yet'], settings: ['Settings', 'Manage your workspace preferences and connected devices.', 'Settings are not available yet'] };
 			const links = [...document.querySelectorAll('[data-view]')];
 			const overview = document.querySelector('[data-panel="overview"]');
 			const feature = document.querySelector('[data-panel="feature"]');
+			const createButton = document.querySelector('#create-button');
+			const createForm = document.querySelector('#local-create-form');
+			const recordList = document.querySelector('#local-record-list');
+			const featureEmpty = document.querySelector('#feature-empty');
+			const cloudSettings = document.querySelector('#cloud-sync-settings');
+			const cloudStatus = document.querySelector('#cloud-sync-status');
+			const cloudEndpoint = document.querySelector('#sync-endpoint');
+			const cloudSyncButton = document.querySelector('#cloud-sync-now');
+			const cloudDisconnectButton = document.querySelector('#cloud-disconnect');
+			const scope: { accountID: string; workspaceID: string; deviceID?: string } = { accountID: 'local-browser', workspaceID: WORKBENCH_WORKSPACE_ID };
+			const recordKinds = { projects: 'project', thoughts: 'idea' };
+			let activeView = 'overview';
+			let syncInFlight = false;
+			let scheduledSync;
+			let lastSyncAt = 0;
+			async function renderLocalRecords(view) {
+				activeView = view;
+				const kind = recordKinds[view];
+				if (!kind) { recordList.replaceChildren(); featureEmpty.hidden = false; cloudSettings.hidden = view !== 'settings'; return; }
+				cloudSettings.hidden = true;
+				try {
+					const [records, outbox] = await Promise.all([listLocalRecords(scope, kind), listOutbox(scope)]);
+					recordList.replaceChildren();
+					for (const record of records.filter((item) => !item.isTombstone)) {
+						const payload = decodePayload(record.payload);
+						const article = document.createElement('article'); article.className = 'local-record panel';
+						const title = document.createElement('h2'); title.textContent = payload.strings.title ?? 'Untitled';
+						const body = document.createElement('p'); body.textContent = payload.strings.notes ?? payload.strings.content ?? '';
+						const status = document.createElement('small'); status.textContent = outbox.some((entry) => entry.mutationID === `${record.entityKind}:${record.id}:${record.revision.counter}:${record.revision.originDeviceID}`) ? 'Saved here · waiting for sync' : 'Saved on this browser';
+						article.append(title, body, status);
+						const actions = document.createElement('div'); actions.className = 'form-actions';
+						const edit = document.createElement('button'); edit.type = 'button'; edit.textContent = 'Edit';
+						edit.addEventListener('click', async () => {
+							const bodyKey = kind === 'project' ? 'notes' : 'content';
+							const nextTitle = window.prompt('Project title', payload.strings.title ?? '');
+							if (nextTitle === null) return;
+							const nextBody = window.prompt(kind === 'project' ? 'Project notes' : 'Thought', payload.strings[bodyKey] ?? '');
+							if (nextBody === null || !nextTitle.trim()) return;
+							const next = { ...payload, strings: { ...payload.strings, title: nextTitle.trim(), [bodyKey]: nextBody.trim() }, dates: { ...payload.dates, updatedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') } };
+							await saveLocalRecord(scope, kind, next, record.id);
+							scheduleForegroundSync('local edit');
+							await renderLocalRecords(view);
+						});
+						const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'secondary-action'; remove.textContent = 'Delete';
+						remove.addEventListener('click', async () => {
+							if (!window.confirm(`Delete “${payload.strings.title ?? 'Untitled'}”? This will sync as a deletion.`)) return;
+							await saveLocalRecord(scope, kind, payload, record.id, true);
+							scheduleForegroundSync('local deletion');
+							await renderLocalRecords(view);
+						});
+						actions.append(edit, remove); article.append(actions); recordList.append(article);
+					}
+					featureEmpty.hidden = records.some((record) => !record.isTombstone);
+				} catch (error) {
+					recordList.replaceChildren(); featureEmpty.hidden = false;
+					document.querySelector('#feature-empty-title').textContent = 'Local storage is unavailable';
+					document.querySelector('#save-status').textContent = String(error);
+				}
+			}
 			function showView(view) {
 				const [label, description, emptyTitle] = labels[view] ?? labels.overview;
 				const isOverview = view === 'overview';
@@ -75,10 +149,177 @@ import { SITE_DESCRIPTION, SITE_TITLE } from '../consts';
 				document.querySelector('#feature-heading').textContent = label;
 				document.querySelector('#feature-description').textContent = description;
 				document.querySelector('#feature-empty-title').textContent = emptyTitle;
+				const canCreate = Boolean(recordKinds[view]);
+				createButton.hidden = !canCreate;
+				cloudSettings.hidden = view !== 'settings';
+				createButton.textContent = view === 'projects' ? '＋ New project' : '＋ New thought';
+				createForm.hidden = true;
 				links.forEach((link) => link.classList.toggle('active', link.dataset.view === view));
 				history.replaceState(null, '', isOverview ? '/' : `#${view}`);
+				if (!isOverview) void renderLocalRecords(view);
 			}
 			links.forEach((link) => link.addEventListener('click', (event) => { event.preventDefault(); showView(link.dataset.view); }));
+			createButton.addEventListener('click', () => { createForm.hidden = !createForm.hidden; if (!createForm.hidden) document.querySelector('#local-title').focus(); });
+			createForm.addEventListener('submit', async (event) => {
+				event.preventDefault();
+				const title = new FormData(createForm).get('title').toString().trim();
+				const body = new FormData(createForm).get('body').toString().trim();
+				if (!title) return;
+				const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+				const payload = activeView === 'projects'
+					? { strings: { title, notes: body }, dates: { createdAt: now, updatedAt: now } }
+					: { strings: { title, content: body, category: 'General' }, dates: { createdAt: now, updatedAt: now } };
+				try {
+					await saveLocalRecord(scope, recordKinds[activeView], payload);
+					scheduleForegroundSync('local edit');
+					createForm.reset(); document.querySelector('#save-status').textContent = 'Saved locally.';
+					await renderLocalRecords(activeView);
+				} catch (error) { document.querySelector('#save-status').textContent = `Could not save: ${String(error)}`; }
+			});
+			const storedToken = sessionStorage.getItem('workbench-sync-token') ?? '';
+			const defaultSyncEndpoint = 'https://workbench-sync-api-staging.nmulvaine.workers.dev';
+			const storedEndpoint = sessionStorage.getItem('workbench-sync-endpoint') ?? defaultSyncEndpoint;
+			cloudEndpoint.value = storedEndpoint;
+			if (storedToken) {
+				try {
+					const claims = JSON.parse(atob(storedToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+					if (claims.sub && (!claims.exp || claims.exp * 1000 > Date.now())) {
+						scope.accountID = claims.sub;
+						scope.deviceID = await getInstallationDeviceID();
+						await moveLocalScope({ accountID: 'local-browser', workspaceID: WORKBENCH_WORKSPACE_ID }, { accountID: claims.sub, workspaceID: WORKBENCH_WORKSPACE_ID });
+					} else sessionStorage.removeItem('workbench-sync-token');
+				} catch { sessionStorage.removeItem('workbench-sync-token'); }
+			}
+			function updateCloudControls(connected) {
+				cloudSyncButton.disabled = !connected;
+				cloudDisconnectButton.hidden = !connected;
+				cloudStatus.textContent = connected ? 'Connected · manual Sync Now' : 'Not connected';
+			}
+			updateCloudControls(Boolean(sessionStorage.getItem('workbench-sync-token')));
+			function requireSignIn() {
+				sessionStorage.removeItem('workbench-sync-token');
+				updateCloudControls(false);
+			}
+			function encodeBase64Url(bytes) { return btoa(String.fromCharCode(...bytes)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_'); }
+			async function connectAccessToken(token, endpoint) {
+				try {
+					const claims = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+					if (!claims.sub) throw new Error('Token has no account subject');
+					const deviceID = await getInstallationDeviceID();
+					const keyKey = 'workbench-sync-public-key:' + deviceID;
+					let publicKey = localStorage.getItem(keyKey);
+					if (!publicKey) { publicKey = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']).then((key) => crypto.subtle.exportKey('spki', key.publicKey)).then((buffer) => btoa(String.fromCharCode(...new Uint8Array(buffer)))); localStorage.setItem(keyKey, publicKey); }
+					const response = await fetch(new URL('/sync/enroll', endpoint), { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ workspaceID: WORKBENCH_WORKSPACE_ID }) });
+					if (!response.ok) throw new Error(`Workspace enrollment failed with HTTP ${response.status}`);
+					const enrolled = await fetch(new URL(`/sync/workspaces/${encodeURIComponent(WORKBENCH_WORKSPACE_ID)}/devices`, endpoint), { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ id: deviceID, name: 'Workbench browser', kind: 'web', publicKey }) });
+					if (!enrolled.ok) throw new Error(`Device enrollment failed with HTTP ${enrolled.status}`);
+					sessionStorage.setItem('workbench-sync-token', token);
+					sessionStorage.setItem('workbench-sync-endpoint', endpoint);
+					await moveLocalScope({ accountID: 'local-browser', workspaceID: WORKBENCH_WORKSPACE_ID }, { accountID: claims.sub, workspaceID: WORKBENCH_WORKSPACE_ID });
+					scope.accountID = claims.sub;
+					scope.deviceID = deviceID;
+					updateCloudControls(true);
+					cloudStatus.textContent = 'Connected. Catch-up sync is ready.';
+					scheduleForegroundSync('initial connect');
+				} catch (error) { cloudStatus.textContent = `Could not connect: ${String(error)}`; }
+			}
+			async function beginAccessLogin() {
+				const endpoint = cloudEndpoint.value.trim().replace(/\/$/, '');
+				if (!endpoint.startsWith('https://')) { cloudStatus.textContent = 'Enter the HTTPS sync API URL.'; return; }
+				cloudStatus.textContent = 'Loading Cloudflare Access sign-in…';
+				try {
+					const response = await fetch(new URL('/sync/auth/config', endpoint));
+					const config = await response.json();
+					if (!response.ok) throw new Error(config.error === 'access_oidc_not_configured' ? 'Cloudflare Access OIDC is not configured on the staging Worker yet.' : `Access sign-in setup failed with HTTP ${response.status}`);
+					const random = () => encodeBase64Url(crypto.getRandomValues(new Uint8Array(32)));
+					const verifier = random();
+					const state = random();
+					const nonce = random();
+					const challenge = encodeBase64Url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
+					const redirectURI = location.origin + location.pathname;
+					sessionStorage.setItem('workbench-access-pending', JSON.stringify({ state, nonce, verifier, redirectURI, endpoint }));
+					sessionStorage.setItem('workbench-sync-endpoint', endpoint);
+					const authorize = new URL(config.authorizationURL);
+					authorize.search = new URLSearchParams({ response_type: 'code', client_id: config.clientID, redirect_uri: redirectURI, scope: 'openid email profile', state, nonce, code_challenge: challenge, code_challenge_method: 'S256' }).toString();
+					location.assign(authorize);
+				} catch (error) { cloudStatus.textContent = `Could not start sign-in: ${String(error)}`; }
+			}
+			async function finishAccessLogin() {
+				const params = new URLSearchParams(location.search);
+				const code = params.get('code');
+				if (!code && !params.has('error')) return;
+				const pending = JSON.parse(sessionStorage.getItem('workbench-access-pending') ?? 'null');
+				history.replaceState(null, '', location.pathname + location.hash);
+				if (params.has('error')) { sessionStorage.removeItem('workbench-access-pending'); cloudStatus.textContent = `Cloudflare Access sign-in failed: ${params.get('error_description') ?? params.get('error')}`; return; }
+				if (!pending || params.get('state') !== pending.state) { sessionStorage.removeItem('workbench-access-pending'); cloudStatus.textContent = 'Access sign-in state did not match. Please try again.'; return; }
+				cloudStatus.textContent = 'Completing Cloudflare Access sign-in…';
+				try {
+					const response = await fetch(new URL('/sync/auth/token', pending.endpoint), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, codeVerifier: pending.verifier, nonce: pending.nonce, redirectURI: pending.redirectURI }) });
+					const result = await response.json();
+					if (!response.ok) throw new Error(result.error === 'access_oidc_not_configured' ? 'Cloudflare Access OIDC is not configured on the staging Worker yet.' : `Token exchange failed with HTTP ${response.status}`);
+					sessionStorage.removeItem('workbench-access-pending');
+					await connectAccessToken(result.idToken, pending.endpoint);
+				} catch (error) { sessionStorage.removeItem('workbench-access-pending'); cloudStatus.textContent = `Could not finish sign-in: ${String(error)}`; }
+			}
+			document.querySelector('#cloud-connect').addEventListener('click', beginAccessLogin);
+			await finishAccessLogin();
+			async function runSync(trigger, userInitiated = false) {
+				if (syncInFlight) return;
+				const token = sessionStorage.getItem('workbench-sync-token');
+				if (!token) return;
+				let claims;
+				try {
+					claims = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+					if (!claims.sub || (claims.exp && claims.exp * 1000 <= Date.now())) throw new Error('sign-in expired');
+				} catch {
+					requireSignIn();
+					cloudStatus.textContent = 'Sign in again to resume sync. Local changes are waiting safely.';
+					return;
+				}
+				syncInFlight = true;
+				cloudSyncButton.disabled = true;
+				if (!userInitiated) cloudStatus.textContent = `Syncing after ${trigger}…`;
+				try {
+				const endpoint = sessionStorage.getItem('workbench-sync-endpoint') ?? defaultSyncEndpoint;
+					scope.accountID = claims.sub;
+					const deviceID = scope.deviceID ?? await getInstallationDeviceID();
+					const result = await syncWorkspace(endpoint, token, scope, deviceID);
+					lastSyncAt = Date.now();
+					cloudStatus.textContent = `Sync complete · pushed ${result.pushed}, pulled ${result.pulled}`;
+					if (recordKinds[activeView]) await renderLocalRecords(activeView);
+				} catch (error) {
+					const message = String(error);
+					if (/HTTP 401|HTTP 403/.test(message)) {
+						requireSignIn();
+						cloudStatus.textContent = 'Sign in again to resume sync. Local changes are waiting safely.';
+					} else cloudStatus.textContent = `Sync needs retry: ${message}`;
+				} finally {
+					syncInFlight = false;
+					cloudSyncButton.disabled = false;
+				}
+			}
+			function scheduleForegroundSync(trigger) {
+				if (!sessionStorage.getItem('workbench-sync-token') || syncInFlight) return;
+				clearTimeout(scheduledSync);
+				scheduledSync = setTimeout(() => {
+					if (Date.now() - lastSyncAt >= 1_000) void runSync(trigger);
+				}, 350);
+			}
+			cloudSyncButton.addEventListener('click', () => void runSync('manual request', true));
+			window.addEventListener('online', () => scheduleForegroundSync('network reconnect'));
+			document.addEventListener('visibilitychange', () => {
+				if (document.visibilityState === 'visible') scheduleForegroundSync('returning to this tab');
+			});
+			setInterval(() => scheduleForegroundSync('periodic catch-up'), 300_000);
+			if (storedToken) scheduleForegroundSync('tab start');
+			cloudDisconnectButton.addEventListener('click', () => {
+				sessionStorage.removeItem('workbench-sync-token');
+				sessionStorage.removeItem('workbench-sync-endpoint');
+				sessionStorage.removeItem('workbench-access-pending');
+				updateCloudControls(false);
+				scope.accountID = 'local-browser';
+				delete scope.deviceID;
+			});
 			const menuButton = document.querySelector('.mobile-menu');
 			menuButton.addEventListener('click', () => {
 				const expanded = menuButton.getAttribute('aria-expanded') === 'true';
@@ -93,13 +334,17 @@ import { SITE_DESCRIPTION, SITE_TITLE } from '../consts';
 			document.querySelector('#greeting').textContent = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 		</script>
 		<style>
-			:global(:root){--ink:#24262d;--muted:#747783;--line:#e9e9ed;--surface:#fff;--canvas:#f7f7f9;--purple:#6e5bd0;--accent:#6e5bd0;--black:36,38,45;--gray:116,119,131;--gray-light:233,233,237;--gray-dark:36,38,45;--gray-gradient:#f7f7f9;--box-shadow:0 8px 30px rgba(32,30,49,.06)}
-			:global(body){margin:0;background:var(--canvas);color:var(--ink);font:14px/1.5 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh}
+			:global(:root){--ink:#1e1b17;--muted:#636157;--line:#c7c2b86b;--surface:#f4ede6;--canvas:#fff8f2;--clay:#5f5f58;--accent:#636157;--box-shadow:-5px -5px 10px rgba(255,255,255,.88),5px 5px 10px rgba(184,179,164,.38)}
+			:global(body){margin:0;background:var(--canvas);color:var(--ink);font:14px/1.5 Manrope,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh}
 			:global(a){color:inherit}.workspace-shell{min-height:100vh}.sidebar{position:fixed;inset:0 auto 0 0;width:244px;padding:22px 14px 16px;background:#fff;border-right:1px solid var(--line);display:flex;flex-direction:column;z-index:5}.brand{display:flex;align-items:center;gap:10px;padding:0 11px 25px;text-decoration:none;font-size:17px;font-weight:750;letter-spacing:-.4px}.brand-mark{width:28px;height:28px;border-radius:9px;background:#7160ce;color:white;display:grid;place-items:center;font-size:16px}.workspace-picker{display:flex;align-items:center;gap:9px;padding:9px;border:1px solid var(--line);border-radius:10px;margin-bottom:27px}.workspace-avatar,.profile-avatar{width:31px;height:31px;border-radius:9px;display:grid;place-items:center;background:#eeeafe;color:#6451bf;font-weight:700}.workspace-picker strong,.profile strong{display:block;font-size:12px}.workspace-picker small,.profile small{display:block;color:var(--muted);font-size:11px;margin-top:1px}.chevron{margin-left:auto;color:var(--muted)}.nav-label,.eyebrow{color:#92939b;font-weight:700;font-size:10px;letter-spacing:1.05px}.nav-label{margin:0 10px 8px}.primary-nav{display:grid;gap:3px}.nav-item{height:37px;display:flex;align-items:center;gap:11px;border-radius:8px;padding:0 11px;text-decoration:none;color:#666975;font-size:13px}.nav-item>span{font-size:17px;width:17px;text-align:center;color:#858692}.nav-item:hover{background:#f7f6fb}.nav-item.active{background:#f0edfc;color:#5c4abb;font-weight:650}.nav-item.active>span{color:#6653c4}.sidebar-bottom{margin-top:auto}.profile{display:flex;align-items:center;gap:9px;padding:15px 7px 0;margin-top:12px;border-top:1px solid var(--line)}.more{margin-left:auto;font-size:20px;color:#7d7f89}.profile-avatar{background:#fcebdc;color:#b26a38}.main-area{margin-left:244px;min-height:100vh;display:flex;flex-direction:column}.topbar{height:58px;flex:none;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 34px}.breadcrumbs,.topbar-actions{display:flex;align-items:center;gap:11px;color:#858691;font-size:12px}.breadcrumbs strong{color:#4c4d55;font-weight:600}.topbar-actions{gap:15px}.offline-pill{display:flex;align-items:center;gap:6px;border:1px solid #e8e5f6;background:#faf9ff;color:#70669b;border-radius:20px;padding:5px 9px;font-size:11px}.offline-pill span,.sync-dot{width:7px;height:7px;border-radius:50%;background:#d8a447}.icon-button{width:25px;height:25px;border:1px solid #dedee4;border-radius:50%;background:white;color:#777;font-weight:600}.top-avatar{width:27px;height:27px;border-radius:50%;display:grid;place-items:center;background:#fcebdc;color:#ad6536;font-weight:700}.mobile-menu{display:none}.content-wrap{width:min(1120px,100%);box-sizing:border-box;margin:0 auto;padding:38px 48px 34px;flex:1}.welcome-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}.eyebrow{margin:0 0 7px}.welcome-row h1,.feature-view h1{font-size:29px;line-height:1.15;letter-spacing:-.8px;margin:0;font-weight:680}.subheading{font-size:13px;color:var(--muted);margin:7px 0 0}.welcome-mark{font-size:47px;color:#e3dcfa;margin-right:23px}.status-banner{display:flex;align-items:center;gap:13px;background:#fff;border:1px solid #ece8f7;border-radius:11px;padding:15px 17px;margin-bottom:29px;box-shadow:0 2px 6px rgba(35,32,63,.025)}.status-icon{width:34px;height:34px;border-radius:10px;background:#f2effb;color:#7664ce;display:grid;place-items:center;font-size:17px;flex:none}.status-banner strong{font-size:12px}.status-banner p{font-size:11px;color:var(--muted);margin:3px 0 0}.status-tag{margin-left:auto;color:#8b7d56;background:#fbf7e9;padding:5px 8px;border-radius:6px;white-space:nowrap;font-size:9px;font-weight:750;letter-spacing:.65px}.section-heading{margin-bottom:13px}.section-heading h2,.panel h2{margin:0;font-size:15px;letter-spacing:-.15px}.section-heading p,.panel-heading p{font-size:11px;color:var(--muted);margin:3px 0 0}.feature-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.feature-card{position:relative;min-height:120px;box-sizing:border-box;border:1px solid var(--line);border-radius:11px;padding:15px 16px;text-decoration:none;transition:transform .15s ease,box-shadow .15s ease}.feature-card:hover{transform:translateY(-2px);box-shadow:var(--box-shadow)}.feature-icon{display:grid;place-items:center;width:28px;height:28px;border-radius:8px;font-size:16px;margin-bottom:12px}.feature-title{display:block;font-weight:650;font-size:12px}.feature-copy{display:block;font-size:11px;color:#777984;margin-top:2px}.feature-arrow{position:absolute;right:15px;top:16px;color:#92939b;font-size:13px}.lavender{background:#faf9ff}.lavender .feature-icon{background:#eeeafe;color:#715dc8}.peach{background:#fff9f5}.peach .feature-icon{background:#fbeddf;color:#b77040}.mint{background:#f5fbf8}.mint .feature-icon{background:#e3f4eb;color:#498f68}.blue{background:#f5f9ff}.blue .feature-icon{background:#e5effc;color:#4e7eb7}.yellow{background:#fffcf3}.yellow .feature-icon{background:#f8f0d9;color:#a58730}.rose{background:#fff7fa}.rose .feature-icon{background:#f9e9f0;color:#ac5d81}.lower-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:13px;margin-top:19px}.panel{background:white;border:1px solid var(--line);border-radius:11px;padding:16px}.panel-heading{display:flex;align-items:flex-start;justify-content:space-between}.quiet-badge{border:1px solid var(--line);border-radius:5px;color:#8a8b94;font-size:8px;font-weight:700;letter-spacing:.65px;padding:3px 6px}.empty-state{min-height:116px;display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center}.empty-icon{color:#aa9ce3;font-size:25px;line-height:1;margin-bottom:9px}.empty-state strong,.feature-empty strong{font-size:11px}.empty-state p,.feature-empty p{color:var(--muted);font-size:10px;margin:3px 0 0}.sync-panel{padding-bottom:12px}.sync-panel .panel-heading{margin-bottom:17px}.sync-dot{margin:5px 4px 0 0;background:#d4a23e}.device-row{display:flex;align-items:center;gap:9px;padding:10px 0;border-top:1px solid #f0f0f2;border-bottom:1px solid #f0f0f2}.device-icon{width:27px;height:27px;display:grid;place-items:center;border-radius:8px;background:#f3f1fa;color:#7160bd}.device-row strong,.device-row small{display:block;font-size:10px}.device-row small{color:var(--muted);font-size:9px}.device-state{margin-left:auto;font-size:8px;color:#858691;letter-spacing:.45px}.sync-footnote{font-size:9px;color:#83858f;padding-top:10px}.app-footer{display:flex;gap:17px;align-items:center;padding:13px 48px;border-top:1px solid var(--line);font-size:10px;color:#898a93}.app-footer span:first-child{font-weight:700;color:#5e6069}.app-footer a{margin-left:auto;color:#777984;text-decoration:none}.feature-view{min-height:500px}.feature-view-heading{display:flex;align-items:flex-end;justify-content:space-between;margin:0 0 23px}.feature-view .eyebrow{margin-bottom:9px}.disabled-action{border:1px solid var(--line);background:#f0f0f2;color:#999aa2;border-radius:7px;padding:8px 12px;font-size:11px}.status-banner.compact{margin:0 0 16px}.feature-empty{min-height:230px;display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center}.feature-empty .empty-icon{font-size:32px}
 			@media(max-width:1000px){.content-wrap{padding:32px 28px}.topbar{padding:0 25px}.feature-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.lower-grid{grid-template-columns:1fr}.sidebar{width:215px}.main-area{margin-left:215px}.app-footer{padding-inline:28px}}
 			@media(max-width:700px){.sidebar{transform:translateX(-100%);transition:transform .2s ease;box-shadow:none}.sidebar.mobile-open{transform:translateX(0);box-shadow:10px 0 30px rgba(20,20,30,.13)}.main-area{margin-left:0}.topbar{height:54px;padding:0 16px;gap:12px}.mobile-menu{display:block;border:0;background:transparent;color:#656671;font-size:18px;padding:4px}.breadcrumbs{margin-right:auto;gap:7px}.offline-pill{font-size:0;padding:8px}.offline-pill span{width:8px;height:8px}.topbar-actions{gap:9px}.content-wrap{padding:29px 18px}.welcome-row h1,.feature-view h1{font-size:25px}.welcome-mark{font-size:38px;margin-right:7px}.status-banner{align-items:flex-start;padding:13px;gap:10px}.status-tag{display:none}.feature-grid{gap:9px}.feature-card{min-height:116px;padding:13px}.feature-copy{max-width:170px}.lower-grid{gap:10px}.app-footer{padding:12px 18px}.feature-view-heading{align-items:flex-start;gap:12px}.disabled-action{white-space:nowrap}.status-banner p{line-height:1.45}}
 			@media(max-width:390px){.feature-grid{grid-template-columns:1fr}.feature-card{min-height:95px}.feature-icon{margin-bottom:7px}.breadcrumbs{font-size:11px}.content-wrap{padding-inline:14px}}
 			@media(prefers-reduced-motion:reduce){.feature-card,.sidebar{transition:none}}
+			/* Workbench Android Tactile Clay tokens and surfaces */
+			.workspace-shell{background:var(--canvas)}.sidebar{width:260px;padding:24px 18px 18px;background:#f4ede6;border:0;border-right:1px solid var(--line);box-shadow:4px 0 14px rgba(184,179,164,.13)}.brand{padding:0 10px 27px;font-size:20px;font-weight:700;letter-spacing:-.5px}.brand-mark{width:34px;height:34px;border-radius:12px;background:#5f5f58;color:#fff8f2;box-shadow:-3px -3px 7px rgba(255,255,255,.85),3px 3px 7px rgba(184,179,164,.42)}.workspace-picker{min-height:60px;background:#f4ede6;border-color:var(--line);border-radius:16px;margin-bottom:27px;padding:10px;box-shadow:inset 2px 2px 5px rgba(115,107,94,.09),inset -2px -2px 5px rgba(255,255,255,.7)}.workspace-avatar,.profile-avatar{width:36px;height:36px;border-radius:12px;background:#e8e6dd;color:#474740}.workspace-picker strong,.profile strong{font-size:13px}.workspace-picker small,.profile small{font-size:11px}.nav-label,.eyebrow{color:#636157;font-size:12px;letter-spacing:.4px}.primary-nav{gap:5px}.nav-item{min-height:44px;height:auto;border-radius:16px;padding:0 13px;color:#474740;font-size:14px;font-weight:500}.nav-item>span{font-size:20px;width:21px;color:#636157}.nav-item:hover{background:rgba(255,255,255,.43)}.nav-item.active{background:#f4ede6;color:#1e1b17;font-weight:700;box-shadow:inset 2px 2px 5px rgba(115,107,94,.19),inset -2px -2px 5px rgba(255,255,255,.76)}.nav-item.active>span{color:#5f5f58}.profile{padding:16px 4px 0}.more{color:#636157}.main-area{margin-left:260px}.topbar{height:64px;background:#fff8f2;border-bottom:1px solid var(--line);padding:0 40px}.breadcrumbs,.topbar-actions{color:var(--muted);font-size:13px}.breadcrumbs strong{color:var(--ink);font-weight:700}.topbar-actions{gap:17px}.offline-pill{min-height:36px;border:1px solid var(--line);background:#f4ede6;color:#474740;border-radius:999px;padding:7px 13px;font-size:12px;box-shadow:-2px -2px 5px rgba(255,255,255,.85),2px 2px 5px rgba(184,179,164,.32)}.offline-pill span,.sync-dot{background:#9e6e33}.icon-button{width:36px;height:36px;border:1px solid var(--line);background:#f4ede6;color:#474740}.top-avatar{width:36px;height:36px;background:#e8e6dd;color:#474740}.content-wrap{padding:42px 48px 40px}.welcome-row{margin-bottom:28px}.eyebrow{margin-bottom:9px}.welcome-row h1,.feature-view h1{font-size:34px;line-height:1.15;letter-spacing:-1px;font-weight:700}.subheading{font-size:15px;color:var(--muted);margin-top:8px}.welcome-mark{font-size:52px;color:#b8b3a4;margin-right:20px}.status-banner{background:#f4ede6;border-color:var(--line);border-radius:28px;padding:17px 20px;margin-bottom:32px;box-shadow:var(--box-shadow)}.status-icon{width:40px;height:40px;border-radius:14px;background:#eee7e0;color:#5f5f58;font-size:19px}.status-banner strong{font-size:14px}.status-banner p{font-size:13px;color:var(--muted)}.status-tag{color:#755120;background:#e8e6dd;border-radius:999px;padding:7px 11px;font-size:10px;letter-spacing:.4px}.section-heading{margin-bottom:16px}.section-heading h2,.panel h2{font-size:20px;letter-spacing:-.3px}.section-heading p,.panel-heading p{font-size:13px;color:var(--muted);margin:4px 0 0}.feature-grid{gap:18px}.feature-card{min-height:142px;border:1px solid var(--line);border-radius:28px;padding:19px;background:#f4ede6;box-shadow:-5px -5px 10px rgba(255,255,255,.82),5px 5px 10px rgba(184,179,164,.35);transition:transform .15s ease,box-shadow .15s ease}.feature-card:hover{transform:translateY(-2px);box-shadow:-7px -7px 14px rgba(255,255,255,.85),7px 7px 14px rgba(184,179,164,.42)}.feature-icon{width:40px;height:40px;border-radius:14px;background:#e8e6dd!important;color:#5f5f58!important;font-size:20px;margin-bottom:13px}.feature-title{font-weight:700;font-size:14px}.feature-copy{font-size:12px;color:var(--muted);margin-top:4px}.feature-arrow{right:19px;top:20px;color:var(--muted);font-size:16px}.lavender,.peach,.mint,.blue,.yellow,.rose{background:#f4ede6}.lower-grid{gap:18px;margin-top:24px}.panel{background:#f4ede6;border:1px solid var(--line);border-radius:28px;padding:20px;box-shadow:-5px -5px 10px rgba(255,255,255,.82),5px 5px 10px rgba(184,179,164,.32)}.quiet-badge{border-color:var(--line);border-radius:999px;color:var(--muted);font-size:10px;letter-spacing:.4px;padding:5px 9px}.empty-state{min-height:140px}.empty-icon{color:#636157;font-size:30px}.empty-state strong,.feature-empty strong{font-size:13px}.empty-state p,.feature-empty p{color:var(--muted);font-size:12px}.sync-panel{padding-bottom:16px}.sync-panel .panel-heading{margin-bottom:18px}.device-row{gap:12px;padding:13px 0;border-color:var(--line)}.device-icon{width:36px;height:36px;border-radius:13px;background:#e8e6dd;color:#5f5f58;font-size:17px}.device-row strong{font-size:13px}.device-row small{color:var(--muted);font-size:11px}.device-state{font-size:10px;color:var(--muted)}.sync-footnote{font-size:11px;color:var(--muted);padding-top:13px}.app-footer{padding:15px 48px;border-color:var(--line);font-size:11px;color:var(--muted)}.app-footer span:first-child{color:#474740}.feature-view{min-height:500px}.feature-view-heading{margin-bottom:26px}.feature-view .eyebrow{margin-bottom:10px}.disabled-action{border-radius:20px;padding:10px 16px;font-size:13px}.status-banner.compact{margin-bottom:20px}.feature-empty{min-height:260px}.feature-empty .empty-icon{font-size:38px}
+			@media(max-width:1000px){.sidebar{width:225px}.main-area{margin-left:225px}}
+			@media(max-width:700px){.sidebar{width:280px}.mobile-menu{display:block;border:0;background:#f4ede6;color:#474740;width:40px;height:40px;border-radius:14px;font-size:18px;box-shadow:-2px -2px 5px rgba(255,255,255,.85),2px 2px 5px rgba(184,179,164,.32)}.welcome-row h1,.feature-view h1{font-size:30px}.feature-card{min-height:130px}.content-wrap{padding:29px 18px}}
 		</style>
 	</body>
 </html>

@@ -43,6 +43,7 @@ export function validateAsset(manifest: unknown): asserts manifest is AssetManif
   const byteCount = Number(m.byteCount);
   if (!Number.isSafeInteger(byteCount) || byteCount < 0) throw new TypeError("invalid byteCount");
   if (typeof m.mediaType !== "string") throw new TypeError("invalid mediaType");
+  if (/[\r\n]/.test(m.mediaType)) throw new TypeError("invalid mediaType");
   if (typeof m.logicalPath !== "string" || !m.logicalPath) throw new TypeError("invalid logicalPath");
   if (m.ownerRecordID !== undefined && typeof m.ownerRecordID !== "string") throw new TypeError("invalid ownerRecordID");
   if (m.chunkSize !== undefined && (!Number.isSafeInteger(m.chunkSize) || Number(m.chunkSize) < 0)) throw new TypeError("invalid chunkSize");
